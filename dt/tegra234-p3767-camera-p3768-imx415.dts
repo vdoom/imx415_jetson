@@ -1,0 +1,201 @@
+// SPDX-License-Identifier: GPL-2.0-only
+/*
+ * Overlay for the Waveshare IMX415-98 camera (Sony IMX415) on the CAM1
+ * 22-pin connector of the P3768 carrier board (Jetson Orin Nano devkit).
+ *
+ * Adapted from tegra234-p3767-camera-p3768-imx219-C.dts (same connector,
+ * same reset line PAC.00, same serial_c CSI routing, 2 lanes). The module
+ * has its own 37.125 MHz crystal, so no mclk is routed from Tegra.
+ *
+ * Single mode: 3864x2192 RAW10 GBRG @ 15 fps (2-lane limit at 891 Mbps
+ * lane rate / 445.5 MHz link frequency).
+ */
+
+/dts-v1/;
+/plugin/;
+
+#define CAM0_RST	TEGRA234_MAIN_GPIO(H, 3)
+#define CAM0_PWDN	TEGRA234_MAIN_GPIO(H, 6)
+#define CAM1_PWDN	TEGRA234_MAIN_GPIO(AC, 0)
+#define CAM_I2C_MUX 	TEGRA234_AON_GPIO(CC, 3)
+
+#include <dt-bindings/tegra234-p3767-0000-common.h>
+
+/ {
+	overlay-name = "Camera IMX415-98";
+	jetson-header-name = "Jetson 22pin CSI Connector";
+	compatible = JETSON_COMPATIBLE_P3768;
+
+	/* IMX415 sensor module on CSI serial_c / cam1 connector */
+	fragment@0 {
+		target-path = "/";
+		__overlay__ {
+			tegra-capture-vi  {
+				num-channels = <1>;
+				ports {
+					#address-cells = <1>;
+					#size-cells = <0>;
+					vi_port1: port@1 {
+						reg = <0>;
+						rbpcv415_imx415_vi_in1: endpoint {
+							port-index = <2>;
+							bus-width = <2>;
+							remote-endpoint = <&rbpcv415_imx415_csi_out1>;
+						};
+					};
+				};
+			};
+			tegra-camera-platform {
+				compatible = "nvidia, tegra-camera-platform";
+				modules {
+					cam_module1: module1 {
+						badge = "jakku_rear_IMX415";
+						position = "rear";
+						orientation = "1";
+						cam_module1_drivernode0: drivernode0 {
+							pcl_id = "v4l2_sensor";
+							sysfs-device-tree = "/sys/firmware/devicetree/base/bus@0/cam_i2cmux/i2c@1/rbpcv415_c@37";
+						};
+					};
+				};
+			};
+			bus@0 {
+				host1x@13e00000 {
+					nvcsi@15a00000 {
+						num-channels = <1>;
+						#address-cells = <1>;
+						#size-cells = <0>;
+						csi_chan1: channel@1 {
+							reg = <0>;
+							ports {
+								#address-cells = <1>;
+								#size-cells = <0>;
+								csi_chan1_port0: port@0 {
+									reg = <0>;
+									rbpcv415_imx415_csi_in1: endpoint@2 {
+										port-index = <2>;
+										bus-width = <2>;
+										remote-endpoint = <&rbpcv415_imx415_out1>;
+									};
+								};
+								csi_chan1_port1: port@1 {
+									reg = <1>;
+									rbpcv415_imx415_csi_out1: endpoint@3 {
+										remote-endpoint = <&rbpcv415_imx415_vi_in1>;
+									};
+								};
+							};
+						};
+					};
+				};
+				cam_i2cmux {
+					status = "okay";
+					compatible = "i2c-mux-gpio";
+					#address-cells = <1>;
+					#size-cells = <0>;
+					mux-gpios = <&gpio_aon CAM_I2C_MUX GPIO_ACTIVE_HIGH>;
+					i2c-parent = <&cam_i2c>;
+					i2c@1 {
+						status = "okay";
+						reg = <1>;
+						#address-cells = <1>;
+						#size-cells = <0>;
+						rbpcv415_c@37 {
+							/* XCLR: sensor is I2C-dead while this pin is low */
+							reset-gpios = <&gpio CAM1_PWDN GPIO_ACTIVE_HIGH>;
+							compatible = "sony,imx415";
+							/* I2C address is strapped to 0x37 on the Waveshare board */
+							reg = <0x37>;
+							/* V4L2 device node location */
+							devnode = "video0";
+							/* Physical dimensions of sensor (1.45 um pixels) */
+							physical_w = "5.602";
+							physical_h = "3.178";
+							sensor_model = "imx415";
+							use_sensor_mode_id = "true";
+
+							mode0 { /* IMX415_MODE_3864x2192_15FPS */
+								/* module's own crystal; informational, no Tegra mclk */
+								mclk_khz = "37125";
+								num_lanes = "2";
+								tegra_sinterface = "serial_c";
+								phy_mode = "DPHY";
+								/* IMX415 outputs a continuous CSI clock */
+								discontinuous_clk = "no";
+								dpcm_enable = "false";
+								cil_settletime = "0";
+								active_w = "3864";
+								active_h = "2192";
+								mode_type = "bayer";
+								pixel_phase = "gbrg";
+								csi_pixel_bit_depth = "10";
+								readout_orientation = "0";
+								/*
+								 * 445.5 MHz link freq x 2 (DDR) x 2 lanes / 10 bit
+								 * = 178.2 MHz; with line_length 5280 the line rate is
+								 * 33750 lines/s = the sensor's real 29.63 us line time
+								 * (HMAX 2200 x 12 / 891 MHz).
+								 */
+								line_length = "5280";
+								inherent_gain = "1";
+								mclk_multiplier = "4.8";
+								pix_clk_hz = "178200000";
+
+								gain_factor = "1000";
+								framerate_factor = "1000000";
+								exposure_factor = "1000000";
+								/* 0..30 dB in 0.3 dB steps (GAIN_PCG_0 0..100) */
+								min_gain_val = "0";
+								max_gain_val = "30000";
+								step_gain_val = "300";
+								default_gain = "0";
+								min_hdr_ratio = "1";
+								max_hdr_ratio = "1";
+								/* full frame is CSI-limited to 15 fps on 2 lanes */
+								min_framerate = "2000000";
+								max_framerate = "15000000";
+								step_framerate = "1";
+								default_framerate = "15000000";
+								/* 4 lines .. VMAX-8 lines at 29.63 us/line */
+								min_exp_time = "119";
+								max_exp_time = "66430";
+								step_exp_time = "1";
+								default_exp_time = "33000";
+								embedded_metadata_height = "0";
+							};
+							ports {
+								#address-cells = <1>;
+								#size-cells = <0>;
+								port@0 {
+									reg = <0>;
+									rbpcv415_imx415_out1: endpoint {
+										status = "okay";
+										port-index = <2>;
+										bus-width = <2>;
+										remote-endpoint = <&rbpcv415_imx415_csi_in1>;
+									};
+								};
+							};
+						};
+					};
+				};
+				gpio@2200000 {
+					camera-control-output-low {
+						gpio-hog;
+						output-low;
+						gpios = <CAM0_RST 0>;
+						label = "cam0-rst";
+					};
+				};
+				gpio@6000d000 {
+					camera-control-output-low {
+						gpio-hog;
+						output-low;
+						gpios = < CAM1_PWDN 0  CAM0_PWDN 0>;
+						label = "cam1-pwdn", "cam0-pwdn";
+					};
+				};
+			};
+		};
+	};
+};
