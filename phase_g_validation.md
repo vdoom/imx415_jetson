@@ -72,6 +72,25 @@ quick color: G=(0,0)+(1,1), B=(0,1), R=(1,0), subtract black 50, gray-world WB.
 
 **Phase 1 goal met: raw V4L2 Bayer pipeline at 3864×2192@15fps GBRG works.**
 
+## 4-lane / 30 fps upgrade — VALIDATED (2026-07-08)
+
+Switched mode0 to 4 lanes @ 891 Mbps/lane (LANEMODE=3, HMAX=1100, commit
+3820183). On target:
+
+- Transport-only stream (`--stream-mmap`, no file): **flat 30.00 fps**, 300/300
+  frames, dmesg clean. 4-lane link on CAM1 + Waveshare FPC is solid — the
+  RPi5 "purple stripes" (RP1 receiver saturation) do not reproduce on Orin.
+- Frame content clean: GBRG plane means G 101 / B 66 / R 99 / G2 101, uniform
+  rows, full 0..1023 range in a lit scene.
+- ⚠️ Writing to disk at 30 fps (508 MB/s via `--stream-to`) starves the default
+  4-buffer queue on page-cache writeback (repeating 66.6 ms deltas + one 2.3 s
+  stall). Use `--stream-mmap=16` for disk recording, or don't put the disk in
+  the loop (GPU consumers are unaffected).
+- Exposure range at 30 fps: 59–33200 µs (max = full frame time); lower fps via
+  `-c frame_rate=...` extends it dynamically (driver stretches VMAX).
+- Fallback to the validated 2-lane/15fps state: git tag `phase1-2lane-15fps`
+  or `deploy/2lane-15fps-backup/` (two files + reboot).
+
 ## Remaining / next (Phase H)
 
 1. IR-CUT polarity (hardware, wire/switch test — open since Phase A; note:

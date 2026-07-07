@@ -40,7 +40,8 @@ v4l2-ctl -d /dev/video0 \
   --stream-mmap --stream-count=100 --stream-to=/tmp/cap.raw --verbose
 ```
 
-Expected: 10-bit Bayer GBRG 3864x2192, ~15 fps ('<' markers in --verbose).
+Expected: 10-bit Bayer GBRG 3864x2192, 30 fps ('<' markers in --verbose;
+package is 4-lane since 2026-07-08 — 2-lane/15fps fallback in 2lane-15fps-backup/).
 View frames with the guide's Appendix A viewer (try shift 0..6).
 After validation: `echo nv_imx415 | sudo tee /etc/modules-load.d/imx415.conf`
 and optionally `DEFAULT imx415` in extlinux.conf.
