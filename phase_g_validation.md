@@ -14,7 +14,7 @@ needed).
 | 4. controls | ✅ gain 0–30000/300, exposure 119–66431, frame_rate ≤15 fps — DT contract intact |
 | 5. capture | ✅ 30/30 frames, delta locked 66.665 ms = **15.00 fps**, zero jitter, no errors (after the embedded_metadata_height fix below) |
 | 6. frame content | ✅ real scene, geometry clean (uniform row means top/bottom, no OB band), GBRG planes sane |
-| 7. stability | ✅ ~1 min continuous at flat 15.00 fps, dmesg clean of camera errors (user stopped early; full 10-min soak is an optional formality — run `--stream-count=9000` to completion when convenient) |
+| 7. stability | ✅ full 10-min soak (9000 frames) completed: flat 15.00 fps on every readout, no degradation, dmesg free of camera errors |
 | controls change image | ✅ measured: exposure 2→40 ms gave 17× signal above black (theory ≤20×); gain 0→15 dB gave 5.4× (theory 5.62×) — SHR0 and GAIN_PCG_0 math confirmed end-to-end |
 
 ## Debug story: every frame discarded (fixed)
@@ -65,7 +65,7 @@ quick color: G=(0,0)+(1,1), B=(0,1), R=(1,0), subtract black 50, gray-world WB.
 
 - [x] Frames captured without errors in dmesg (30 saved + ~1000 streamed clean)
 - [x] Frame reacts to gain/exposure controls (quantitatively correct)
-- [~] 10-min stream — ~1 min verified flat 15.00 fps / clean dmesg; full soak optional
+- [x] 10-min stream — 9000 frames, flat 15.00 fps, clean dmesg (2026-07-07 ~21:00)
 - [x] Image comparable to RPi reference (coherent scene, sane GBRG levels, shift 6)
 - [x] Reproducible from clean reboot: DEFAULT=imx415 entry + module autoload via
       OF alias — the successful capture after reboot proves the whole chain
@@ -74,8 +74,10 @@ quick color: G=(0,0)+(1,1), B=(0,1), R=(1,0), subtract black 50, gray-world WB.
 
 ## Remaining / next (Phase H)
 
-1. IR-CUT polarity (hardware, wire to GPIO — open since Phase A).
-2. Optional: full 10-min soak for the formal checklist tick.
-3. Phase H options: crop/binned 1080p mode, or 4-lane rework for 30 fps
-   (CAM1 connector on p3768 is 2-lane only — 4-lane would need CAM0? check
-   carrier spec first), CUDA debayer pipeline.
+1. IR-CUT polarity (hardware, wire/switch test — open since Phase A; note:
+   under LED lighting a working filter shows no visible difference — test with
+   an IR remote pointed at the lens and listen for the actuation click).
+2. Phase H options: CUDA debayer + GPU crop/scale to 1080p (recommended first),
+   4-lane rework for 30 fps (verify Waveshare PCB routes lanes 3/4 and CAM1 on
+   p3768 has 4 lanes wired), sensor-side binned 1080p (donor tables in
+   reference/ FRAMOS file), second camera on CAM0.
