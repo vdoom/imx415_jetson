@@ -161,7 +161,14 @@
 								max_exp_time = "66430";
 								step_exp_time = "1";
 								default_exp_time = "33000";
-								embedded_metadata_height = "0";
+								/*
+								 * The sensor family transmits 1 embedded-data
+								 * line per frame; without this VI discards
+								 * every frame (CHANSEL_EMBED_INFRINGE seen as
+								 * corr_err/err_data 16384). Same value as the
+								 * working FRAMOS IMX715 overlay for this port.
+								 */
+								embedded_metadata_height = "1";
 							};
 							ports {
 								#address-cells = <1>;

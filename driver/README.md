@@ -43,7 +43,9 @@ there.
   `min/max_gain_val=0/30000`, `step_gain_val=300`, `exposure_factor=1000000`,
   `min/max_exp_time≈119/66430`, `framerate_factor=1000000`,
   `min/max_framerate` up to `15000000`, `pixel_phase=gbrg`,
-  `csi_pixel_bit_depth=10`, `num_lanes=2`, `tegra_sinterface=serial_c`.
+  `csi_pixel_bit_depth=10`, `num_lanes=2`, `tegra_sinterface=serial_c`,
+  `embedded_metadata_height=1` (sensor sends 1 embedded line per frame —
+  "0" makes VI discard every frame; learned in Phase G).
   Note `line_length=5280` in DT ≠ sensor H-total 26400: tegracam only uses it
   with `pix_clk_hz` for exposure/framerate math (178.2e6/5280 = 33750 lines/s
   = real line rate 1/29.63 µs ✓).
