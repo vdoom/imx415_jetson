@@ -25,7 +25,8 @@ tree at `.../source/hardware/nvidia/t23x/nv-public/overlay/` (same .dts + one
 | modes | five imx219 modes → single `mode0` (contract in `../driver/README.md`) |
 | `discontinuous_clk` | "no" (IMX415 outputs continuous CSI clock) |
 | `embedded_metadata_height` | **"1"** — the sensor sends 1 embedded-data line per frame; with "0" VI discards every frame (`corr_err ... err_data 16384`, = CHANSEL_EMBED_INFRINGE). Found 2026-07-07 during Phase G via the working FRAMOS IMX715 overlay (`../reference/fr_imx715-cam1-2lane-overlay-l4t-r36.4.4.dts`); RPi's RP1 receiver tolerates the line silently, Tegra VI does not |
-| kept as donor | reset-gpios PAC.00 active-high, serial_c, port-index 2, bus-width 2, VI/NVCSI graph, both gpio hogs, 22pin jetson-header-name |
+| kept as donor | reset-gpios PAC.00 active-high, serial_c, port-index 2, VI/NVCSI graph, both gpio hogs, 22pin jetson-header-name |
+| **4-lane upgrade (2026-07-08)** | bus-width 2→4, num_lanes "4", pix_clk_hz 356400000, max_framerate 30 fps, exp 59–33200 µs; CAM1 has 4 lanes wired (proof: FRAMOS cam1-4lane overlay), module routes 4 lanes (proof: RPi forum 4lane test); validated 2-lane state = git tag `phase1-2lane-15fps` + `deploy/2lane-15fps-backup/` |
 
 ## Deploy reminder (Phase F, from passport.md §2.1)
 

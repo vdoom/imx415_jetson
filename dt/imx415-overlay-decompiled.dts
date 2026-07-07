@@ -23,7 +23,7 @@
 
 						endpoint {
 							port-index = <0x02>;
-							bus-width = <0x02>;
+							bus-width = <0x04>;
 							remote-endpoint = <0x01>;
 							phandle = <0x03>;
 						};
@@ -74,7 +74,7 @@
 
 									endpoint@2 {
 										port-index = <0x02>;
-										bus-width = <0x02>;
+										bus-width = <0x04>;
 										remote-endpoint = <0x02>;
 										phandle = <0x04>;
 									};
@@ -120,7 +120,7 @@
 
 							mode0 {
 								mclk_khz = "37125";
-								num_lanes = "2";
+								num_lanes = "4";
 								tegra_sinterface = "serial_c";
 								phy_mode = "DPHY";
 								discontinuous_clk = "no";
@@ -134,8 +134,8 @@
 								readout_orientation = "0";
 								line_length = "5280";
 								inherent_gain = "1";
-								mclk_multiplier = "4.8";
-								pix_clk_hz = "178200000";
+								mclk_multiplier = "9.6";
+								pix_clk_hz = "356400000";
 								gain_factor = "1000";
 								framerate_factor = "1000000";
 								exposure_factor = "1000000";
@@ -146,13 +146,13 @@
 								min_hdr_ratio = "1";
 								max_hdr_ratio = "1";
 								min_framerate = "2000000";
-								max_framerate = "15000000";
+								max_framerate = "30000000";
 								step_framerate = "1";
-								default_framerate = "15000000";
-								min_exp_time = "119";
-								max_exp_time = "66430";
+								default_framerate = "30000000";
+								min_exp_time = "59";
+								max_exp_time = "33200";
 								step_exp_time = "1";
-								default_exp_time = "33000";
+								default_exp_time = "16000";
 								embedded_metadata_height = "1";
 							};
 
@@ -166,7 +166,7 @@
 									endpoint {
 										status = "okay";
 										port-index = <0x02>;
-										bus-width = <0x02>;
+										bus-width = <0x04>;
 										remote-endpoint = <0x04>;
 										phandle = <0x02>;
 									};

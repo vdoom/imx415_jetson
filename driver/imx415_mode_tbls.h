@@ -5,9 +5,9 @@
  * Register values taken from the Raspberry Pi kernel driver
  * drivers/media/i2c/imx415.c (branch rpi-6.12.y), which is the reference
  * configuration validated with the Waveshare IMX415-98 module:
- * INCK = 37.125 MHz, lane rate 891 Mbps/lane, 2 lanes, RAW10, all-pixel
- * 3864x2192. Multi-byte registers are split little-endian (low byte at
- * the low address), matching imx415_write() in the RPi driver.
+ * INCK = 37.125 MHz, lane rate 891 Mbps/lane, 4 lanes, RAW10, all-pixel
+ * 3864x2192 @ 30 fps. Multi-byte registers are split little-endian (low
+ * byte at the low address), matching imx415_write() in the RPi driver.
  *
  * Copyright (c) 2026, project imx415_jetson.
  */
@@ -88,8 +88,8 @@ static const imx415_reg imx415_mode_common[] = {
 	{0x4028, 0x2F},	/* TLPX */
 	{0x4029, 0x00},
 
-	/* 2-lane MIPI output */
-	{0x4001, 0x01},	/* LANEMODE = 1 (2-lane) */
+	/* 4-lane MIPI output */
+	{0x4001, 0x03},	/* LANEMODE = 3 (4-lane) */
 	{0x4002, 0x00},
 
 	/* SONY magic registers (imx415_init_table[]) */
@@ -169,17 +169,17 @@ static const imx415_reg imx415_mode_common[] = {
 };
 
 /*
- * Full frame 3864x2192 @ 15 fps (2-lane limit at 891 Mbps).
- * VMAX = 2250 (2192 active + 58 vblank), HMAX = 2200 (the hmax_min the
- * RPi driver enforces for 2 lanes at 891 Mbps): line time = 2200 x 12 /
- * 891 MHz = 29.63 us -> 1 / (2250 x 29.63 us) = 15.0 fps.
+ * Full frame 3864x2192 @ 30 fps (4 lanes at 891 Mbps).
+ * VMAX = 2250 (2192 active + 58 vblank), HMAX = 1100 (the hmax_min the
+ * RPi driver enforces for 4 lanes at 891 Mbps): line time = 1100 x 12 /
+ * 891 MHz = 14.81 us -> 1 / (2250 x 14.81 us) = 30.0 fps.
  */
-static const imx415_reg imx415_mode_3864x2192_15fps[] = {
+static const imx415_reg imx415_mode_3864x2192_30fps[] = {
 	{0x3024, 0xCA},	/* VMAX = 2250 = 0x0008CA */
 	{0x3025, 0x08},
 	{0x3026, 0x00},
-	{0x3028, 0x98},	/* HMAX = 2200 = 0x0898 */
-	{0x3029, 0x08},
+	{0x3028, 0x4C},	/* HMAX = 1100 = 0x044C */
+	{0x3029, 0x04},
 	{0x3050, 0x08},	/* SHR0 = 8 -> max exposure (VMAX - 8 lines) */
 	{0x3051, 0x00},
 	{0x3052, 0x00},
@@ -190,7 +190,7 @@ static const imx415_reg imx415_mode_3864x2192_15fps[] = {
 };
 
 enum {
-	IMX415_MODE_3864x2192_15FPS,
+	IMX415_MODE_3864x2192_30FPS,
 
 	IMX415_MODE_COMMON,
 	IMX415_START_STREAM,
@@ -198,15 +198,15 @@ enum {
 };
 
 static const imx415_reg *mode_table[] = {
-	[IMX415_MODE_3864x2192_15FPS] = imx415_mode_3864x2192_15fps,
+	[IMX415_MODE_3864x2192_30FPS] = imx415_mode_3864x2192_30fps,
 
 	[IMX415_MODE_COMMON] = imx415_mode_common,
 	[IMX415_START_STREAM] = imx415_start_stream,
 	[IMX415_STOP_STREAM] = imx415_stop_stream,
 };
 
-static const int imx415_15fps[] = {
-	15,
+static const int imx415_30fps[] = {
+	30,
 };
 
 /*
@@ -214,7 +214,7 @@ static const int imx415_15fps[] = {
  * device tree!
  */
 static const struct camera_common_frmfmt imx415_frmfmt[] = {
-	{{3864, 2192}, imx415_15fps, 1, 0, IMX415_MODE_3864x2192_15FPS},
+	{{3864, 2192}, imx415_30fps, 1, 0, IMX415_MODE_3864x2192_30FPS},
 };
 
 #endif /* __IMX415_I2C_TABLES__ */

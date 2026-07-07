@@ -38,14 +38,17 @@ there.
   only out of standby, hence the wakeup dance in `board_setup()`.
 - **power_on releases XCLR high** (PAC.00 on CAM1) — sensor is I2C-dead while
   XCLR is low (verified empirically on the devkit, `passport.md` §1.3).
-- **Expected DT mode0 properties** (Phase E must match):
-  `pix_clk_hz=178200000`, `line_length=5280`, `gain_factor=1000`,
+- **Expected DT mode0 properties** (must match; 4-lane values since 2026-07-08):
+  `pix_clk_hz=356400000`, `line_length=5280`, `gain_factor=1000`,
   `min/max_gain_val=0/30000`, `step_gain_val=300`, `exposure_factor=1000000`,
-  `min/max_exp_time≈119/66430`, `framerate_factor=1000000`,
-  `min/max_framerate` up to `15000000`, `pixel_phase=gbrg`,
-  `csi_pixel_bit_depth=10`, `num_lanes=2`, `tegra_sinterface=serial_c`,
+  `min/max_exp_time≈59/33200`, `framerate_factor=1000000`,
+  `min/max_framerate` up to `30000000`, `pixel_phase=gbrg`,
+  `csi_pixel_bit_depth=10`, `num_lanes=4`, `tegra_sinterface=serial_c`,
   `embedded_metadata_height=1` (sensor sends 1 embedded line per frame —
   "0" makes VI discard every frame; learned in Phase G).
-  Note `line_length=5280` in DT ≠ sensor H-total 26400: tegracam only uses it
-  with `pix_clk_hz` for exposure/framerate math (178.2e6/5280 = 33750 lines/s
-  = real line rate 1/29.63 µs ✓).
+  Note `line_length=5280` in DT ≠ sensor H-total 13200: tegracam only uses it
+  with `pix_clk_hz` for exposure/framerate math (356.4e6/5280 = 67500 lines/s
+  = real line rate 1/14.81 µs ✓).
+- **4-lane switch (2026-07-08)**: LANEMODE=3, HMAX=1100 (rpi driver's
+  hmax_min for 4-lane@891M) → 30.0 fps. The validated 2-lane/15fps state is
+  git tag `phase1-2lane-15fps` and `deploy/2lane-15fps-backup/`.
