@@ -332,16 +332,41 @@ int main(int argc, char **argv)
 		p.oy = (SENSOR_H / 2 - out_h) / 2; /* 8 */
 	}
 
+	/* must precede any CUDA context creation (for zero-copy mapping) */
+	cudaSetDeviceFlags(cudaDeviceMapHost);
+
 	Capture cap = {};
 	cap_open(&cap, dev);
 	int pitch16 = cap.pitch_bytes / 2;
-	printf("capture: %dx%d GB10, pitch %u B; out: %dx%d RGB8%s\n",
-	       SENSOR_W, SENSOR_H, cap.pitch_bytes, out_w, out_h,
-	       linear ? " (linear)" : "");
 
-	uint16_t *d_raw;
+	/*
+	 * Zero-copy: on Tegra the iGPU shares DRAM with the CPU, so the
+	 * V4L2 capture buffers (uncached DMA memory - a CPU memcpy from
+	 * them runs at ~1 GB/s = 17 ms/frame) can be registered with CUDA
+	 * and read by the kernel directly. Falls back to memcpy if the
+	 * registration is refused.
+	 */
+	uint16_t *d_bufmap[NUM_BUFFERS] = {};
+	int zero_copy = 1;
+	for (int i = 0; i < NUM_BUFFERS && zero_copy; i++) {
+		if (cudaHostRegister(cap.buf_start[i], cap.buf_len[i],
+				     cudaHostRegisterMapped) != cudaSuccess ||
+		    cudaHostGetDevicePointer((void **)&d_bufmap[i],
+					     cap.buf_start[i], 0) != cudaSuccess)
+			zero_copy = 0;
+	}
+	if (!zero_copy)
+		cudaGetLastError(); /* clear the sticky error */
+
+	printf("capture: %dx%d GB10, pitch %u B; out: %dx%d RGB8%s; %s\n",
+	       SENSOR_W, SENSOR_H, cap.pitch_bytes, out_w, out_h,
+	       linear ? " (linear)" : "",
+	       zero_copy ? "zero-copy input" : "memcpy input (fallback)");
+
+	uint16_t *d_raw = NULL;
 	uint8_t *d_rgb, *h_rgb;
-	CUDA_CHECK(cudaMalloc(&d_raw, cap.sizeimage));
+	if (!zero_copy)
+		CUDA_CHECK(cudaMalloc(&d_raw, cap.sizeimage));
 	CUDA_CHECK(cudaMalloc(&d_rgb, (size_t)out_w * out_h * 3));
 	h_rgb = (uint8_t *)malloc((size_t)out_w * out_h * 3);
 
@@ -369,13 +394,20 @@ int main(int argc, char **argv)
 			t_start = now_s();
 		}
 
-		double c0 = now_s();
-		CUDA_CHECK(cudaMemcpy(d_raw, cap.buf_start[idx], cap.sizeimage,
-				      cudaMemcpyHostToDevice));
-		copy_s_sum += now_s() - c0;
+		const uint16_t *src;
+		if (zero_copy) {
+			src = d_bufmap[idx];
+		} else {
+			double c0 = now_s();
+			CUDA_CHECK(cudaMemcpy(d_raw, cap.buf_start[idx],
+					      cap.sizeimage,
+					      cudaMemcpyHostToDevice));
+			copy_s_sum += now_s() - c0;
+			src = d_raw;
+		}
 
 		CUDA_CHECK(cudaEventRecord(ev0));
-		debayer_gbrg_half<<<grd, blk>>>(d_raw, pitch16, d_rgb, out_w,
+		debayer_gbrg_half<<<grd, blk>>>(src, pitch16, d_rgb, out_w,
 						out_h, p);
 		CUDA_CHECK(cudaEventRecord(ev1));
 		CUDA_CHECK(cudaEventSynchronize(ev1));
@@ -415,8 +447,12 @@ int main(int argc, char **argv)
 	       frames, el, (frames - 1) / el, 1e3 * copy_s_sum / frames,
 	       kern_ms_sum / frames);
 
+	if (zero_copy)
+		for (int i = 0; i < NUM_BUFFERS; i++)
+			cudaHostUnregister(cap.buf_start[i]);
 	cap_close(&cap);
-	cudaFree(d_raw);
+	if (d_raw)
+		cudaFree(d_raw);
 	cudaFree(d_rgb);
 	free(h_rgb);
 	return 0;
