@@ -52,3 +52,13 @@ there.
 - **4-lane switch (2026-07-08)**: LANEMODE=3, HMAX=1100 (rpi driver's
   hmax_min for 4-lane@891M) → 30.0 fps. The validated 2-lane/15fps state is
   git tag `phase1-2lane-15fps` and `deploy/2lane-15fps-backup/`.
+- **Sensor modes (2026-07-08)**:
+  - mode0 = 3864x2192 **10-bit** 30fps (validated).
+  - mode1 = 3864x2192 **12-bit** 30fps. Differs from mode0 by exactly three
+    registers (ADBIT 0x3031, MDBIT 0x3032, ADBIT1 0x3701), verified against the
+    Rockchip driver; same VMAX/HMAX/891M link. DT `mode1`: csi_pixel_bit_depth
+    12, pix_clk_hz 297000000, line_length 4400. Select via `sensor_mode`
+    control (0/1); fourcc GB10 vs GB12. **Pending target validation.**
+  - Crop 720p90 and binned 1944x1097 were requested but Rockchip only ships
+    them at 2-lane/2376M and 594M respectively (not our 4-lane/891M) — those
+    need derived timing and are deferred, not lifted verbatim.

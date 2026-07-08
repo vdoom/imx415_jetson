@@ -40,6 +40,7 @@
 #define BLACK_LEVEL 60.0f
 #define NUM_BUFFERS 8
 #define TEGRA_CID_VI_BYPASS_MODE 0x009a2064
+#define TEGRA_CID_SENSOR_MODE_ID 0x009a2008
 
 /*
  * Color correction matrices from the Raspberry Pi calibrated tuning file
@@ -88,8 +89,9 @@ static int xioctl(int fd, unsigned long req, void *arg)
 /* ------------------------------------------------------------------ */
 
 struct ProcParams {
-	float black;    /* black level, 10-bit scale */
-	float scale;    /* 1 / (1023 - black) */
+	int shift;      /* raw16 -> pixel: 6 for 10-bit, 4 for 12-bit (VI MSB-aligns) */
+	float black;    /* black level on the unpacked scale */
+	float scale;    /* 1 / (maxval - black) */
 	float wb_r, wb_g, wb_b;
 	float ccm[9];    /* row-major color matrix (identity to disable) */
 	float inv_gamma; /* 1/2.2, or 1.0 for linear output */
@@ -110,11 +112,13 @@ __global__ void debayer_gbrg_half(const uint16_t *__restrict__ raw,
 	const uint16_t *r0 = raw + (size_t)sy * raw_pitch16;
 	const uint16_t *r1 = r0 + raw_pitch16;
 
-	/* GBRG quad: (0,0)=G1 (0,1)=B (1,0)=R (1,1)=G2; VI data is p<<6 */
-	float g1 = (float)(r0[sx] >> 6) - p.black;
-	float b = (float)(r0[sx + 1] >> 6) - p.black;
-	float r = (float)(r1[sx] >> 6) - p.black;
-	float g2 = (float)(r1[sx + 1] >> 6) - p.black;
+	/* GBRG quad: (0,0)=G1 (0,1)=B (1,0)=R (1,1)=G2; VI MSB-aligns the
+	 * N-bit sample in 16 bits, so the pixel value is raw16 >> shift. */
+	int s = p.shift;
+	float g1 = (float)(r0[sx] >> s) - p.black;
+	float b = (float)(r0[sx + 1] >> s) - p.black;
+	float r = (float)(r1[sx] >> s) - p.black;
+	float g2 = (float)(r1[sx + 1] >> s) - p.black;
 
 	float R = fmaxf(r, 0.0f) * p.scale * p.wb_r;
 	float G = fmaxf(0.5f * (g1 + g2), 0.0f) * p.scale * p.wb_g;
@@ -151,7 +155,8 @@ struct Capture {
 	unsigned int sizeimage;
 };
 
-static void cap_open(Capture *c, const char *dev)
+static void cap_open(Capture *c, const char *dev, uint32_t pixfmt,
+		     int sensor_mode)
 {
 	c->fd = open(dev, O_RDWR | O_NONBLOCK);
 	if (c->fd < 0) {
@@ -166,20 +171,27 @@ static void cap_open(Capture *c, const char *dev)
 		fprintf(stderr, "warning: bypass_mode not set (%s)\n",
 			strerror(errno));
 
+	/* Select the DT modeN (0 = 10-bit, 1 = 12-bit) before S_FMT. */
+	ctrl.id = TEGRA_CID_SENSOR_MODE_ID;
+	ctrl.value = sensor_mode;
+	if (xioctl(c->fd, VIDIOC_S_CTRL, &ctrl) < 0)
+		fprintf(stderr, "warning: sensor_mode not set (%s)\n",
+			strerror(errno));
+
 	struct v4l2_format fmt = {};
 	fmt.type = V4L2_BUF_TYPE_VIDEO_CAPTURE;
 	fmt.fmt.pix.width = SENSOR_W;
 	fmt.fmt.pix.height = SENSOR_H;
-	fmt.fmt.pix.pixelformat = V4L2_PIX_FMT_SGBRG10;
+	fmt.fmt.pix.pixelformat = pixfmt;
 	fmt.fmt.pix.field = V4L2_FIELD_NONE;
 	if (xioctl(c->fd, VIDIOC_S_FMT, &fmt) < 0) {
 		perror("VIDIOC_S_FMT");
 		exit(1);
 	}
 	if (fmt.fmt.pix.width != SENSOR_W || fmt.fmt.pix.height != SENSOR_H ||
-	    fmt.fmt.pix.pixelformat != V4L2_PIX_FMT_SGBRG10) {
-		fprintf(stderr, "driver did not accept %ux%u GB10\n", SENSOR_W,
-			SENSOR_H);
+	    fmt.fmt.pix.pixelformat != pixfmt) {
+		fprintf(stderr, "driver did not accept %ux%u fmt 0x%08x\n",
+			SENSOR_W, SENSOR_H, pixfmt);
 		exit(1);
 	}
 	c->pitch_bytes = fmt.fmt.pix.bytesperline;
@@ -287,8 +299,8 @@ static void ccm_for_ct(float ct, float *m)
 }
 
 /* Gray-world white balance gains from one raw frame (CPU, subsampled). */
-static void gray_world(const uint16_t *raw, int pitch16, float *wr, float *wg,
-		       float *wb)
+static void gray_world(const uint16_t *raw, int pitch16, int shift, float black,
+		       float *wr, float *wg, float *wb)
 {
 	double sr = 0, sg = 0, sb = 0;
 	long n = 0;
@@ -296,10 +308,10 @@ static void gray_world(const uint16_t *raw, int pitch16, float *wr, float *wg,
 		const uint16_t *r0 = raw + (size_t)y * pitch16;
 		const uint16_t *r1 = r0 + pitch16;
 		for (int x = 0; x < SENSOR_W - 1; x += 16) {
-			float g1 = (float)(r0[x] >> 6) - BLACK_LEVEL;
-			float b = (float)(r0[x + 1] >> 6) - BLACK_LEVEL;
-			float r = (float)(r1[x] >> 6) - BLACK_LEVEL;
-			float g2 = (float)(r1[x + 1] >> 6) - BLACK_LEVEL;
+			float g1 = (float)(r0[x] >> shift) - black;
+			float b = (float)(r0[x + 1] >> shift) - black;
+			float r = (float)(r1[x] >> shift) - black;
+			float g2 = (float)(r1[x + 1] >> shift) - black;
 			sr += r > 0 ? r : 0;
 			sb += b > 0 ? b : 0;
 			sg += 0.5 * ((g1 > 0 ? g1 : 0) + (g2 > 0 ? g2 : 0));
@@ -344,7 +356,7 @@ int main(int argc, char **argv)
 	int frames = 300;
 	int snap_at = 30;
 	int out_w = SENSOR_W / 2, out_h = SENSOR_H / 2; /* 1932x1096 */
-	int crop1080 = 0, awb = 0, linear = 0;
+	int crop1080 = 0, awb = 0, linear = 0, bits = 10;
 	float wb_r = 1.0f, wb_g = 1.0f, wb_b = 1.0f;
 	float ct = 4600.0f; /* default: daylight-ish CCM; 0 = identity */
 
@@ -357,6 +369,8 @@ int main(int argc, char **argv)
 			snap_path = argv[++i];
 		else if (!strcmp(argv[i], "--snap-at") && i + 1 < argc)
 			snap_at = atoi(argv[++i]);
+		else if (!strcmp(argv[i], "--bits") && i + 1 < argc)
+			bits = atoi(argv[++i]);
 		else if (!strcmp(argv[i], "--crop1080"))
 			crop1080 = 1;
 		else if (!strcmp(argv[i], "--awb"))
@@ -374,17 +388,32 @@ int main(int argc, char **argv)
 		else {
 			fprintf(stderr,
 				"usage: %s [--device /dev/video0] [--frames N]\n"
-				"  [--snap out.ppm] [--snap-at N] [--crop1080]\n"
-				"  [--awb] [--wb R G B] [--ct kelvin] [--no-ccm]\n"
-				"  [--linear]\n",
+				"  [--snap out.ppm] [--snap-at N] [--bits 10|12]\n"
+				"  [--crop1080] [--awb] [--wb R G B] [--ct kelvin]\n"
+				"  [--no-ccm] [--linear]\n",
 				argv[0]);
 			return 1;
 		}
 	}
+	if (bits != 10 && bits != 12) {
+		fprintf(stderr, "--bits must be 10 or 12\n");
+		return 1;
+	}
+
+	/*
+	 * VI MSB-aligns the N-bit sample in a 16-bit word, so the pixel is
+	 * raw16 >> (16 - bits). Black level 60 (10-bit, from the RPi tuning
+	 * file) scales with bit depth. 10-bit = mode0/GB10, 12-bit = mode1/GB12.
+	 */
+	uint32_t pixfmt = (bits == 12) ? V4L2_PIX_FMT_SGBRG12
+				       : V4L2_PIX_FMT_SGBRG10;
+	int sensor_mode = (bits == 12) ? 1 : 0;
+	float maxval = (bits == 12) ? 4095.0f : 1023.0f;
 
 	ProcParams p = {};
-	p.black = BLACK_LEVEL;
-	p.scale = 1.0f / (1023.0f - BLACK_LEVEL);
+	p.shift = 16 - bits;
+	p.black = BLACK_LEVEL * (bits == 12 ? 4.0f : 1.0f);
+	p.scale = 1.0f / (maxval - p.black);
 	p.wb_r = wb_r;
 	p.wb_g = wb_g;
 	p.wb_b = wb_b;
@@ -401,7 +430,7 @@ int main(int argc, char **argv)
 	cudaSetDeviceFlags(cudaDeviceMapHost);
 
 	Capture cap = {};
-	cap_open(&cap, dev);
+	cap_open(&cap, dev, pixfmt, sensor_mode);
 	int pitch16 = cap.pitch_bytes / 2;
 
 	/*
@@ -423,9 +452,9 @@ int main(int argc, char **argv)
 	if (!zero_copy)
 		cudaGetLastError(); /* clear the sticky error */
 
-	printf("capture: %dx%d GB10, pitch %u B; out: %dx%d RGB8%s; %s\n",
-	       SENSOR_W, SENSOR_H, cap.pitch_bytes, out_w, out_h,
-	       linear ? " (linear)" : "",
+	printf("capture: %dx%d GB%d (mode%d), pitch %u B; out: %dx%d RGB8%s; %s\n",
+	       SENSOR_W, SENSOR_H, bits, sensor_mode, cap.pitch_bytes, out_w,
+	       out_h, linear ? " (linear)" : "",
 	       zero_copy ? "zero-copy input" : "memcpy input (fallback)");
 
 	uint16_t *d_raw = NULL;
@@ -452,7 +481,8 @@ int main(int argc, char **argv)
 		if (i == 0) {
 			if (awb) {
 				gray_world((const uint16_t *)cap.buf_start[idx],
-					   pitch16, &p.wb_r, &p.wb_g, &p.wb_b);
+					   pitch16, p.shift, p.black, &p.wb_r,
+					   &p.wb_g, &p.wb_b);
 				printf("awb gains: R %.3f G %.3f B %.3f\n",
 				       p.wb_r, p.wb_g, p.wb_b);
 			}

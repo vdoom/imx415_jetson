@@ -40,12 +40,11 @@ static const imx415_reg imx415_stop_stream[] = {
 };
 
 static const imx415_reg imx415_mode_common[] = {
-	/* readout: all-pixel mode, no flip, RAW10 */
+	/* readout: all-pixel mode, no flip. Bit-depth registers (ADBIT/
+	 * MDBIT/ADBIT1) are set per-mode below, not here. */
 	{0x301C, 0x00},	/* WINMODE */
 	{0x3022, 0x00},	/* ADDMODE */
 	{0x3030, 0x00},	/* REVERSE */
-	{0x3031, 0x00},	/* ADBIT: 10-bit */
-	{0x3032, 0x00},	/* MDBIT: 10-bit */
 	/* output VSYNC on XVS and low on XHS */
 	{0x30C0, 0x22},	/* OUTSEL */
 	{0x30C1, 0x00},	/* DRV */
@@ -175,6 +174,9 @@ static const imx415_reg imx415_mode_common[] = {
  * 891 MHz = 14.81 us -> 1 / (2250 x 14.81 us) = 30.0 fps.
  */
 static const imx415_reg imx415_mode_3864x2192_30fps[] = {
+	{0x3031, 0x00},	/* ADBIT: 10-bit AD */
+	{0x3032, 0x00},	/* MDBIT: 10-bit output */
+	{0x3701, 0x00},	/* ADBIT1: 10-bit analog */
 	{0x3024, 0xCA},	/* VMAX = 2250 = 0x0008CA */
 	{0x3025, 0x08},
 	{0x3026, 0x00},
@@ -189,8 +191,34 @@ static const imx415_reg imx415_mode_3864x2192_30fps[] = {
 	{IMX415_TABLE_END, 0x00}
 };
 
+/*
+ * Full frame 3864x2192 12-bit @ 30 fps (4 lanes at 891 Mbps).
+ * Identical to the 10-bit mode except the three bit-depth registers
+ * (verified against the Rockchip driver: the 10->12 bit delta is exactly
+ * ADBIT/MDBIT/ADBIT1; VMAX/HMAX/link timing are unchanged). 12-bit RAW at
+ * 30 fps = 3.05 Gb/s, within the 4x891 = 3.56 Gb/s CSI budget.
+ */
+static const imx415_reg imx415_mode_3864x2192_12bit_30fps[] = {
+	{0x3031, 0x01},	/* ADBIT: 12-bit AD */
+	{0x3032, 0x01},	/* MDBIT: 12-bit output */
+	{0x3701, 0x03},	/* ADBIT1: 12-bit analog */
+	{0x3024, 0xCA},	/* VMAX = 2250 */
+	{0x3025, 0x08},
+	{0x3026, 0x00},
+	{0x3028, 0x4C},	/* HMAX = 1100 */
+	{0x3029, 0x04},
+	{0x3050, 0x08},	/* SHR0 = 8 */
+	{0x3051, 0x00},
+	{0x3052, 0x00},
+	{0x3090, 0x00},	/* GAIN_PCG_0 = 0 dB */
+	{0x3091, 0x00},
+	{IMX415_TABLE_WAIT_MS, 10},
+	{IMX415_TABLE_END, 0x00}
+};
+
 enum {
-	IMX415_MODE_3864x2192_30FPS,
+	IMX415_MODE_3864x2192_30FPS,		/* mode0: 10-bit */
+	IMX415_MODE_3864x2192_12BIT_30FPS,	/* mode1: 12-bit */
 
 	IMX415_MODE_COMMON,
 	IMX415_START_STREAM,
@@ -199,6 +227,7 @@ enum {
 
 static const imx415_reg *mode_table[] = {
 	[IMX415_MODE_3864x2192_30FPS] = imx415_mode_3864x2192_30fps,
+	[IMX415_MODE_3864x2192_12BIT_30FPS] = imx415_mode_3864x2192_12bit_30fps,
 
 	[IMX415_MODE_COMMON] = imx415_mode_common,
 	[IMX415_START_STREAM] = imx415_start_stream,
@@ -210,11 +239,13 @@ static const int imx415_30fps[] = {
 };
 
 /*
- * WARNING: frmfmt ordering need to match mode definition in
- * device tree!
+ * WARNING: frmfmt ordering must match the modeN node order in the
+ * device tree overlay. mode0 = 10-bit, mode1 = 12-bit (same geometry;
+ * selected via the sensor_mode control / csi_pixel_bit_depth).
  */
 static const struct camera_common_frmfmt imx415_frmfmt[] = {
 	{{3864, 2192}, imx415_30fps, 1, 0, IMX415_MODE_3864x2192_30FPS},
+	{{3864, 2192}, imx415_30fps, 1, 0, IMX415_MODE_3864x2192_12BIT_30FPS},
 };
 
 #endif /* __IMX415_I2C_TABLES__ */

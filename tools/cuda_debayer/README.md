@@ -29,8 +29,11 @@ make            # uses /usr/local/cuda/bin/nvcc, -arch=sm_87
 ./imx415_debayer --frames 300                      # bench: expect ~30 fps
 ./imx415_debayer --snap out.ppm --awb              # save frame 30 as PPM
 ./imx415_debayer --crop1080 --linear --frames 300  # inference-style config
+./imx415_debayer --bits 12 --snap out12.ppm --awb  # 12-bit mode (mode1)
 ```
 
+- `--bits 10|12` — sensor bit depth: selects DT mode0 (GB10) or mode1 (GB12)
+  via the sensor_mode control and sets the VI unpack shift (>>6 or >>4)
 - `--awb` — gray-world white balance from the first frame
 - `--wb R G B` — manual channel gains
 - `--ct <kelvin>` — CCM color temperature (default 4600; table spans 2698-5658 K)
