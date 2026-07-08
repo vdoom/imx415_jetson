@@ -25,7 +25,11 @@ BLACK_8BIT = 12.5  # sensor black level 50 on the 10-bit scale
 
 def v4l2_cmd(args):
     ctrls = f"bypass_mode=0,exposure={args.exposure},gain={args.gain}"
+    # Pin sensor_mode=0 (10-bit) BEFORE the format: the mode control latches
+    # across processes, so a prior 12-bit run would otherwise leave the sensor
+    # emitting RAW12 while we ask VI for GB10 -> every frame discarded.
     return ["v4l2-ctl", "-d", args.device,
+            "--set-ctrl", "sensor_mode=0",
             f"--set-fmt-video=width={W},height={H},pixelformat=GB10",
             "--set-ctrl", ctrls,
             "--stream-mmap", "--stream-to=-"]
