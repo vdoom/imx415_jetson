@@ -171,10 +171,21 @@ static void cap_open(Capture *c, const char *dev, uint32_t pixfmt,
 		fprintf(stderr, "warning: bypass_mode not set (%s)\n",
 			strerror(errno));
 
-	/* Select the DT modeN (0 = 10-bit, 1 = 12-bit) before S_FMT. */
-	ctrl.id = TEGRA_CID_SENSOR_MODE_ID;
-	ctrl.value = sensor_mode;
-	if (xioctl(c->fd, VIDIOC_S_CTRL, &ctrl) < 0)
+	/*
+	 * Select the DT modeN (0 = 10-bit, 1 = 12-bit) before S_FMT.
+	 * sensor_mode is an int64 control, so it needs S_EXT_CTRLS (not
+	 * S_CTRL, which only handles 32-bit and returns EINVAL). The
+	 * requested pixel format (GB10/GB12) also drives mode selection,
+	 * so this is belt-and-suspenders for the same-resolution modes.
+	 */
+	struct v4l2_ext_control ec = {};
+	ec.id = TEGRA_CID_SENSOR_MODE_ID;
+	ec.value64 = sensor_mode;
+	struct v4l2_ext_controls ecs = {};
+	ecs.which = V4L2_CTRL_WHICH_CUR_VAL;
+	ecs.count = 1;
+	ecs.controls = &ec;
+	if (xioctl(c->fd, VIDIOC_S_EXT_CTRLS, &ecs) < 0)
 		fprintf(stderr, "warning: sensor_mode not set (%s)\n",
 			strerror(errno));
 

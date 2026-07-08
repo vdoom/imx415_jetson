@@ -58,7 +58,10 @@ there.
     registers (ADBIT 0x3031, MDBIT 0x3032, ADBIT1 0x3701), verified against the
     Rockchip driver; same VMAX/HMAX/891M link. DT `mode1`: csi_pixel_bit_depth
     12, pix_clk_hz 297000000, line_length 4400. Select via `sensor_mode`
-    control (0/1); fourcc GB10 vs GB12. **Pending target validation.**
+    control (0/1) or by requesting GB10 vs GB12. **Validated on target
+    2026-07-08**: both GB10+GB12 enumerate at 3864x2192@30, GB12 streams flat
+    30.00 fps clean; CUDA `--bits 12` 30.01 fps. NB: `sensor_mode` is an int64
+    control -> needs VIDIOC_S_EXT_CTRLS, not S_CTRL (format also selects mode).
   - Crop 720p90 and binned 1944x1097 were requested but Rockchip only ships
     them at 2-lane/2376M and 594M respectively (not our 4-lane/891M) — those
     need derived timing and are deferred, not lifted verbatim.
