@@ -35,9 +35,34 @@
 
 #define SENSOR_W 3864
 #define SENSOR_H 2192
-#define BLACK_LEVEL 50.0f /* 10-bit scale */
+/* 10-bit scale; from the RPi calibrated tuning file (rpi.black_level
+ * 3840 on the 16-bit scale), not the 50 the BLKLEVEL register suggests. */
+#define BLACK_LEVEL 60.0f
 #define NUM_BUFFERS 8
 #define TEGRA_CID_VI_BYPASS_MODE 0x009a2064
+
+/*
+ * Color correction matrices from the Raspberry Pi calibrated tuning file
+ * for this sensor (libcamera src/ipa/rpi/pisp/data/imx415.json, rpi.ccm).
+ * Applied to white-balanced linear RGB; interpolated by color temperature.
+ */
+struct CcmEntry {
+	float ct;
+	float m[9];
+};
+static const CcmEntry ccm_table[] = {
+	{ 2698, { 1.572f, -0.328f, -0.245f, -0.613f, 1.705f, -0.092f,
+		  -0.434f, 0.481f, 0.953f } },
+	{ 2930, { 1.696f, -0.530f, -0.166f, -0.671f, 1.785f, -0.113f,
+		  -0.418f, 0.546f, 0.872f } },
+	{ 3643, { 1.726f, -0.724f, -0.002f, -0.459f, 1.405f, 0.054f,
+		  -0.145f, -0.798f, 1.943f } },
+	{ 4605, { 1.499f, -0.419f, -0.080f, -0.392f, 1.695f, -0.302f,
+		  0.016f, -0.885f, 1.870f } },
+	{ 5658, { 1.388f, -0.232f, -0.156f, -0.375f, 1.703f, -0.328f,
+		  -0.013f, -0.720f, 1.734f } },
+};
+#define CCM_TABLE_LEN (sizeof(ccm_table) / sizeof(ccm_table[0]))
 
 #define CUDA_CHECK(call)                                                     \
 	do {                                                                 \
@@ -66,6 +91,7 @@ struct ProcParams {
 	float black;    /* black level, 10-bit scale */
 	float scale;    /* 1 / (1023 - black) */
 	float wb_r, wb_g, wb_b;
+	float ccm[9];    /* row-major color matrix (identity to disable) */
 	float inv_gamma; /* 1/2.2, or 1.0 for linear output */
 	int ox, oy;      /* crop offset in output (half-res) coordinates */
 };
@@ -94,9 +120,13 @@ __global__ void debayer_gbrg_half(const uint16_t *__restrict__ raw,
 	float G = fmaxf(0.5f * (g1 + g2), 0.0f) * p.scale * p.wb_g;
 	float B = fmaxf(b, 0.0f) * p.scale * p.wb_b;
 
-	R = fminf(R, 1.0f);
-	G = fminf(G, 1.0f);
-	B = fminf(B, 1.0f);
+	float Rc = p.ccm[0] * R + p.ccm[1] * G + p.ccm[2] * B;
+	float Gc = p.ccm[3] * R + p.ccm[4] * G + p.ccm[5] * B;
+	float Bc = p.ccm[6] * R + p.ccm[7] * G + p.ccm[8] * B;
+
+	R = fminf(fmaxf(Rc, 0.0f), 1.0f);
+	G = fminf(fmaxf(Gc, 0.0f), 1.0f);
+	B = fminf(fmaxf(Bc, 0.0f), 1.0f);
 	if (p.inv_gamma != 1.0f) {
 		R = __powf(R, p.inv_gamma);
 		G = __powf(G, p.inv_gamma);
@@ -228,6 +258,34 @@ static void cap_close(Capture *c)
 /* helpers                                                             */
 /* ------------------------------------------------------------------ */
 
+/* CT-interpolated CCM from the tuning table; identity if ct <= 0. */
+static void ccm_for_ct(float ct, float *m)
+{
+	if (ct <= 0.0f) {
+		for (int i = 0; i < 9; i++)
+			m[i] = (i % 4 == 0) ? 1.0f : 0.0f;
+		return;
+	}
+	if (ct <= ccm_table[0].ct) {
+		memcpy(m, ccm_table[0].m, 9 * sizeof(float));
+		return;
+	}
+	if (ct >= ccm_table[CCM_TABLE_LEN - 1].ct) {
+		memcpy(m, ccm_table[CCM_TABLE_LEN - 1].m, 9 * sizeof(float));
+		return;
+	}
+	for (unsigned int i = 1; i < CCM_TABLE_LEN; i++) {
+		if (ct <= ccm_table[i].ct) {
+			float f = (ct - ccm_table[i - 1].ct) /
+				  (ccm_table[i].ct - ccm_table[i - 1].ct);
+			for (int j = 0; j < 9; j++)
+				m[j] = (1.0f - f) * ccm_table[i - 1].m[j] +
+				       f * ccm_table[i].m[j];
+			return;
+		}
+	}
+}
+
 /* Gray-world white balance gains from one raw frame (CPU, subsampled). */
 static void gray_world(const uint16_t *raw, int pitch16, float *wr, float *wg,
 		       float *wb)
@@ -288,6 +346,7 @@ int main(int argc, char **argv)
 	int out_w = SENSOR_W / 2, out_h = SENSOR_H / 2; /* 1932x1096 */
 	int crop1080 = 0, awb = 0, linear = 0;
 	float wb_r = 1.0f, wb_g = 1.0f, wb_b = 1.0f;
+	float ct = 4600.0f; /* default: daylight-ish CCM; 0 = identity */
 
 	for (int i = 1; i < argc; i++) {
 		if (!strcmp(argv[i], "--device") && i + 1 < argc)
@@ -308,11 +367,16 @@ int main(int argc, char **argv)
 			wb_r = atof(argv[++i]);
 			wb_g = atof(argv[++i]);
 			wb_b = atof(argv[++i]);
-		} else {
+		} else if (!strcmp(argv[i], "--ct") && i + 1 < argc)
+			ct = atof(argv[++i]);
+		else if (!strcmp(argv[i], "--no-ccm"))
+			ct = 0.0f;
+		else {
 			fprintf(stderr,
 				"usage: %s [--device /dev/video0] [--frames N]\n"
 				"  [--snap out.ppm] [--snap-at N] [--crop1080]\n"
-				"  [--awb] [--wb R G B] [--linear]\n",
+				"  [--awb] [--wb R G B] [--ct kelvin] [--no-ccm]\n"
+				"  [--linear]\n",
 				argv[0]);
 			return 1;
 		}
@@ -324,6 +388,7 @@ int main(int argc, char **argv)
 	p.wb_r = wb_r;
 	p.wb_g = wb_g;
 	p.wb_b = wb_b;
+	ccm_for_ct(ct, p.ccm);
 	p.inv_gamma = linear ? 1.0f : (1.0f / 2.2f);
 	if (crop1080) {
 		out_w = 1920;

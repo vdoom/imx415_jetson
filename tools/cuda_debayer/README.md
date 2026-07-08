@@ -5,9 +5,16 @@ GPU kernel → packed RGB8 in device memory at 1932×1096 (or 1920×1080 with
 `--crop1080`), 30 fps.
 
 The kernel fuses: 10-bit unpack (`raw16 >> 6`, the measured VI alignment) →
-black-level subtract (50) → GBRG 2×2 quad debayer to half resolution (no
-zippering, effectively 2×2 binning) → white balance → normalize → gamma 2.2
-(or `--linear` for inference).
+black-level subtract (60, from the RPi calibrated tuning file) → GBRG 2×2 quad
+debayer to half resolution (no zippering, effectively 2×2 binning) → white
+balance → **color-correction matrix** → normalize → gamma 2.2 (or `--linear`
+for inference).
+
+The CCMs are the factory-calibrated matrices from Raspberry Pi's tuning file
+for this exact sensor (`libcamera .../pisp/data/imx415.json`, `rpi.ccm`),
+interpolated by color temperature. Each row sums to ~1.0 (neutral-preserving);
+the off-diagonal terms restore true saturation that a raw-only pipeline lacks.
+`--ct <kelvin>` picks the CCM (default 4600); `--no-ccm` disables it.
 
 ## Build (on the Jetson)
 
@@ -26,7 +33,9 @@ make            # uses /usr/local/cuda/bin/nvcc, -arch=sm_87
 
 - `--awb` — gray-world white balance from the first frame
 - `--wb R G B` — manual channel gains
-- `--linear` — skip gamma (linear RGB for ML preprocessing)
+- `--ct <kelvin>` — CCM color temperature (default 4600; table spans 2698-5658 K)
+- `--no-ccm` — identity CCM (raw WB'd color, e.g. to compare)
+- `--linear` — skip gamma (linear RGB for ML preprocessing; CCM still applied)
 - Sensor exposure/gain are *not* set here — use v4l2-ctl before/independently:
   `v4l2-ctl -d /dev/video0 -c exposure=16000,gain=6000`
 - Only one process can own /dev/video0 — stop the MJPEG viewer first.
