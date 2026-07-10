@@ -106,26 +106,36 @@ no effect.** Controlled swap test (same module, same switch position): on RPi5
 one power-up click puts it in the switch-selected mode and the switch toggles
 day/night live; back on Jetson, one power-up click always lands on night.
 
-Model established by the experiments:
-- Bistable actuator, **no memory across power-up**: the drive circuit fires a
-  state-setting pulse at each camera power-up.
-- The pulses are triggered by **XCLR edges** (clicks coincide with driver
-  probe at t≈9 s, not with 3.3 V rail-up at boot) — the same connector line we
-  drive as reset-gpios (PAC.00).
-- On RPi5 (CAM_GPIO at 3.3 V logic) the pulse direction honors the switch; on
-  Jetson (camera-connector GPIO at 1.8 V logic) the "day" direction never
-  engages — 1.8 V is enough for the sensor's XCLR but evidently below the
-  IR-CUT direction-driver's threshold, so the default (night) always wins.
+Dead ends ruled out by experiment (2026-07-10):
 - No light sensor on the board (inspected).
+- The `GP0` pad next to +3V3/GND is NOT a working IR-CUT control on Jetson:
+  it reads ~0 V always (0.00/0.05 V depending on switch position, i.e. weakly
+  coupled to the switch network), stays 0 V during streaming (so it is NOT the
+  XCLR net), and neither edges nor held 3.3 V on it (through stream restarts
+  AND a full reboot) change anything.
+- The physical switch NEVER clicks/acts on Jetson — streaming or idle — while
+  on RPi5 it toggles day/night live with a click.
+
+**Root-cause level measurement (the breakthrough):** the coil behind the 2-pin
+connector (red/black wires) is driven by an H-bridge with a **continuously
+held ±3.2 V**, and polarity alone selects the mode — measured on the RPi5:
+**day (IR-CUT) = −3.17 V, night (IR) = +3.16 V** (same probe orientation).
+Whatever direction-input the bridge honors on the Pi is stuck at "night" on
+Jetson (likely related to how each platform drives the connector control
+line, but with a working coil-level fix the board logic no longer matters).
 
 **Consequences:** on Jetson the camera is a good IR/night camera; daytime
 color is IR-polluted and no AWB/CCM can correct it (the calibrated CCMs
 assume IR-blocked light).
 
-**Fix (guide §9.2 route, recommended):** drive the IR-CUT from a 40-pin header
-GPIO (true 3.3 V logic): locate the board's IR-CUT control pad (or inject at
-the physical switch's center pin), one wire + GND, then day/night = gpioset.
-Pending: photos of both PCB sides to identify the injection point.
+**Fix (chosen): drive the coil directly, bypassing the board logic.**
+- Tier 1 (no parts): unplug the 2-pin coil connector from the camera board and
+  feed the coil from the Jetson 40-pin header (3.3 V = pin 1, GND = pin 6) at
+  the day polarity. The coil is designed for continuous energization (the
+  Pi's own board holds ±3.2 V on it permanently). Wrong polarity is harmless —
+  it just selects night; verify with the IR-remote test and swap if needed.
+- Tier 2 (software day/night): dual H-bridge breakout (DRV8833/L9110S) between
+  two 40-pin GPIOs and the coil → `gpioset`-controlled polarity.
 
 ## Remaining / next (Phase H)
 
