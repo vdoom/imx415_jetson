@@ -20,7 +20,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 W, H = 3864, 2192
 FRAME_BYTES = W * H * 2
-BLACK_8BIT = 12.5  # sensor black level 50 on the 10-bit scale
+BLACK_10BIT = 60.0  # calibrated black level (RPi tuning file), 10-bit scale
 
 
 def v4l2_cmd(args):
@@ -40,19 +40,29 @@ def frames(args):
     proc = subprocess.Popen(v4l2_cmd(args), stdout=subprocess.PIPE,
                             stderr=subprocess.DEVNULL, bufsize=FRAME_BYTES)
     wb_gains = None  # EMA-smoothed gray-world gains (B, G, R)
+    acc = None       # temporal accumulator for --tavg
+    tavg_alpha = 1.0 / max(args.tavg, 1)
     try:
         while True:
             buf = proc.stdout.read(FRAME_BYTES)
             if len(buf) < FRAME_BYTES:
                 break
             raw = np.frombuffer(buf, dtype=np.uint16).reshape(H, W)
-            # VI stores 10-bit MSB-aligned in 16-bit -> top 8 bits are the pixel
-            bay8 = (raw >> 8).astype(np.uint8)
+            # VI stores 10-bit MSB-aligned in 16-bit: pixel = raw >> 6.
+            # Keep all 10 bits (uint16 debayer) - quantizing to 8 bits
+            # before the stretch shows as grain in dim scenes.
+            bay16 = (raw >> 6).astype(np.uint16)
             # V4L2 GBRG == OpenCV BayerGR (OpenCV names by row1 cols 1,2)
-            bgr = cv2.cvtColor(bay8, cv2.COLOR_BayerGR2BGR)
+            bgr = cv2.cvtColor(bay16, cv2.COLOR_BayerGR2BGR)
             bgr = cv2.resize(bgr, (W // args.scale, H // args.scale),
                              interpolation=cv2.INTER_AREA)
-            f = np.clip(bgr.astype(np.float32) - BLACK_8BIT, 0.0, None)
+            f = np.clip(bgr.astype(np.float32) - BLACK_10BIT, 0.0, None)
+            if args.tavg > 1:
+                # rolling average of linear frames: divides noise by
+                # ~sqrt(N) on static scenes (moving objects will smear)
+                acc = f if acc is None \
+                    else (1.0 - tavg_alpha) * acc + tavg_alpha * f
+                f = acc
             # gray-world white balance (raw Bayer is green-heavy by design);
             # EMA-smoothed across frames so the preview doesn't flicker
             means = f.reshape(-1, 3).mean(axis=0) + 1e-3
@@ -109,6 +119,9 @@ if __name__ == "__main__":
                     help="preview downscale factor (default 4 -> 966x548)")
     ap.add_argument("--exposure", type=int, default=33000,
                     help="exposure in us (119..66430)")
+    ap.add_argument("--tavg", type=int, default=1,
+                    help="temporal averaging over ~N frames (default 1 = off; "
+                         "try 4-8 for dim static scenes)")
     ap.add_argument("--gain", type=int, default=6000,
                     help="gain in milli-dB (0..30000, step 300)")
     ap.add_argument("--window", action="store_true",
