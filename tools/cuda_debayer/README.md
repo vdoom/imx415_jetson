@@ -89,6 +89,12 @@ copy, etc.).
 
 - 30.0 fps sustained, zero-copy input, kernel 1.9 ms/frame with the full
   color pipeline (ALSC + CCM add ~0.7 ms over the 1.17 ms raw kernel).
+- **AE validated on target**: dark room from 10 ms/0 dB start → 33 ms +
+  10.2 dB in 4 steps (~1.3 s), means 0.005→0.026→0.067→0.088, settles in
+  the deadband, no overshoot/hunting, 29.99 fps; every step matches the
+  controller math exactly. AWB dark-retry engaged as designed (locked at
+  frame 38 after AE brightened the scene). `--snap` waits for color lock
+  since the fix below the trace was taken.
 - Auto color validated on target: warm chandelier scene → CT est. 3109 K,
   white ceiling renders neutral (r/g 1.007, b/g 1.036), blown lamp rolls to
   white (no pink halo), corner color shading strongly reduced by ALSC.

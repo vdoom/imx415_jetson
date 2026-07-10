@@ -875,11 +875,14 @@ int main(int argc, char **argv)
 		 * >>> Integration point: hand d_rgb to your consumer here <<<
 		 */
 
-		if (snap_path && i == snap_at) {
+		/* wait for the color pipeline too: with --ae in a dark scene,
+		 * AWB/CCM can lock frames after snap_at (dark-retry) */
+		if (snap_path && i >= snap_at && color_done) {
 			CUDA_CHECK(cudaMemcpy(h_rgb, d_rgb,
 					      (size_t)out_w * out_h * 3,
 					      cudaMemcpyDeviceToHost));
 			save_ppm(snap_path, h_rgb, out_w, out_h);
+			snap_path = NULL; /* once */
 		}
 
 		if (xioctl(cap.fd, VIDIOC_QBUF, &b) < 0) {
