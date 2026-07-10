@@ -13,18 +13,17 @@ there.
 (= target), alias `of:N*T*Csony,imx415*`, depends `tegra-camera`.
 **Not yet tested on hardware** — that's Phase F/G.
 
-## ⚠ PENDING HOST REBUILD: override_enable default (source changed 2026-07-10)
+## override_enable default (source 2026-07-10, host rebuild done 2026-07-10)
 
 `nv_imx415.c` probe now sets `tc_dev->s_data->override_enable = true;`
-(right after `tegracam_set_privdata`). **The deployed `deploy/nv_imx415.ko`
-and the BSP-tree copy predate this change** — to pick it up:
+(right after `tegracam_set_privdata`). Re-synced to the BSP tree and rebuilt
+on the host 2026-07-10; `deploy/nv_imx415.ko` + `checksums.sha1` updated
+(sha1 a89d348c, vermagic verified = target).
 
-1. re-sync `nv_imx415.c` from this directory to the BSP tree (path above),
-2. rebuild `nv_imx415.ko` on the host as usual,
-3. redeploy to the target (`deploy/install_on_target.sh` flow),
-4. verify on target after a clean boot, **before any tool has run**:
-   `v4l2-ctl -d /dev/video0 -C override_enable` must read **1**, and a
-   `v4l2-ctl -c gain=15000` must actually brighten a stream.
+**⚠ PENDING TARGET INSTALL** — rerun `deploy/install_on_target.sh` on the
+Jetson (idempotent), reboot, then verify **before any tool has run**:
+`v4l2-ctl -d /dev/video0 -C override_enable` must read **1**, and a
+`v4l2-ctl -c gain=15000` must actually brighten a stream.
 
 Why: the tegracam framework **silently discards** user gain/exposure/
 frame_rate writes unless `override_enable` (control 0x009a2065, default 0)

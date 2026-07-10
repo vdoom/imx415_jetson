@@ -164,10 +164,11 @@ VMAX 2250 → SHR0=900 exactly). Mid-stream control changes also land
 register-exact once the flag is set — it gates all user control writes,
 not just the stream-start application.
 
-**Proper fix (driver-side, PENDING HOST REBUILD):** `driver/nv_imx415.c`
-probe now defaults `s_data->override_enable = true` — needs re-sync to the
-BSP tree, host rebuild and redeploy; steps + verification in
-`driver/README.md`. Until then the userspace setting above carries it.
+**Proper fix (driver-side):** `driver/nv_imx415.c` probe now defaults
+`s_data->override_enable = true`. Host rebuild done 2026-07-10, fresh .ko
+staged in `deploy/` — **pending target install + on-target verification**;
+steps in `driver/README.md`. Until then the userspace setting above carries
+it (and stays as belt-and-suspenders after).
 
 **Day-mode color confirmed by data** (same session): raw ratios under mixed
 light R/G 0.54, B/G 0.31 — red is not IR-inflated, so the IR-CUT coil wire

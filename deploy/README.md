@@ -1,7 +1,11 @@
-# Deploy package (Phase F) — built 2026-07-07 on the host
+# Deploy package (Phase F) — built 2026-07-07, module rebuilt 2026-07-10
 
 Contents:
-- `nv_imx415.ko` — vermagic `5.15.185-tegra SMP preempt mod_unload modversions aarch64`
+- `nv_imx415.ko` — vermagic `5.15.185-tegra SMP preempt mod_unload modversions aarch64`;
+  rebuilt 2026-07-10 with `override_enable = true` default at probe, so
+  v4l2 gain/exposure/frame_rate writes actually program the sensor
+  (see `driver/README.md`). After install + reboot verify:
+  `v4l2-ctl -d /dev/video0 -C override_enable` → **1**
 - `tegra234-p3767-camera-p3768-imx415.dtbo` — the CAM1 overlay
 - `checksums.sha1` — verified by the installer
 - `install_on_target.sh` — one-shot installer (idempotent, run with sudo)
