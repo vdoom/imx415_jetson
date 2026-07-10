@@ -13,17 +13,32 @@ there.
 (= target), alias `of:N*T*Csony,imx415*`, depends `tegra-camera`.
 **Not yet tested on hardware** — that's Phase F/G.
 
-## override_enable default (source 2026-07-10, host rebuild done 2026-07-10)
+## override_enable default (fixed 2026-07-10, v2: set in set_mode, not probe)
 
-`nv_imx415.c` probe now sets `tc_dev->s_data->override_enable = true;`
-(right after `tegracam_set_privdata`). Re-synced to the BSP tree and rebuilt
-on the host 2026-07-10; `deploy/nv_imx415.ko` + `checksums.sha1` updated
-(sha1 a89d348c, vermagic verified = target).
+`imx415_set_mode()` now asserts `s_data->override_enable = true` at every
+stream-on. **The first attempt set it at probe — that does not work**: the
+VI channel re-inits its control handler on first open of /dev/video0 and
+`v4l2_ctrl_handler_setup()` pushes the OVERRIDE_ENABLE control default (0)
+through s_ctrl, which clears the field (`vi/channel.c`, the
+`TEGRA_CAMERA_CID_OVERRIDE_ENABLE` case; found on target: after a clean
+boot with the probe-fix module, `-C override_enable` read 0). In
+`tegracam_v4l2.c` s_stream the framework calls `set_mode` *before* the
+`if (s_data->override_enable)` gate that applies cached gain/exposure/
+frame_rate, so asserting it there always wins.
 
-**⚠ PENDING TARGET INSTALL** — rerun `deploy/install_on_target.sh` on the
-Jetson (idempotent), reboot, then verify **before any tool has run**:
-`v4l2-ctl -d /dev/video0 -C override_enable` must read **1**, and a
-`v4l2-ctl -c gain=15000` must actually brighten a stream.
+Verification is **behavioral** — the OVERRIDE_ENABLE control readback is
+the VI channel's own cached value (default 0), never synced from the field,
+so `-C override_enable` reading 0 is normal and meaningless. Instead:
+stream and check `v4l2-ctl -c gain=15000` visibly brightens, or set
+exposure/gain before a capture and confirm brightness tracks the values.
+Consequence: the control can no longer disable the applied-at-stream-on
+behavior persistently (next stream-on re-asserts it) — intentional, this
+sensor is raw-V4L2-only and the caching default protects nothing here.
+
+Current `deploy/nv_imx415.ko` = sha1 9d066f36 (vermagic = target).
+Module sha1 history: 560f3796 = 2-lane Phase F originals, d3eab08c =
+4-lane, b1868dae = +12-bit, a89d348c = probe-fix (broken), 9d066f36 =
+set_mode fix.
 
 Why: the tegracam framework **silently discards** user gain/exposure/
 frame_rate writes unless `override_enable` (control 0x009a2065, default 0)

@@ -164,11 +164,16 @@ VMAX 2250 → SHR0=900 exactly). Mid-stream control changes also land
 register-exact once the flag is set — it gates all user control writes,
 not just the stream-start application.
 
-**Proper fix (driver-side):** `driver/nv_imx415.c` probe now defaults
-`s_data->override_enable = true`. Host rebuild done 2026-07-10, fresh .ko
-staged in `deploy/` — **pending target install + on-target verification**;
-steps in `driver/README.md`. Until then the userspace setting above carries
-it (and stays as belt-and-suspenders after).
+**Proper fix (driver-side):** `driver/nv_imx415.c` `imx415_set_mode()` now
+asserts `s_data->override_enable = true` at every stream-on. A first attempt
+set it at probe — defeated on target: the VI channel re-inits its control
+handler at first open of /dev/video0 and handler_setup applies the
+OVERRIDE_ENABLE default (0), clearing the field (`vi/channel.c`). set_mode
+runs before tegracam's override check in s_stream, so it wins. NB the
+`-C override_enable` readback is the VI channel's cached control value —
+it reads 0 even when the fix works; verify behaviorally (gain=15000
+brightens). Details in `driver/README.md`. The userspace setting stays as
+belt-and-suspenders.
 
 **Day-mode color confirmed by data** (same session): raw ratios under mixed
 light R/G 0.54, B/G 0.31 — red is not IR-inflated, so the IR-CUT coil wire

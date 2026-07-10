@@ -564,6 +564,22 @@ static int imx415_set_mode(struct tegracam_device *tc_dev)
 
 	int err = 0;
 
+	/*
+	 * Raw V4L2 sensor with no Argus/ISP consumer: actually program
+	 * user gain/exposure/frame_rate controls into the hardware. With
+	 * the tegracam default (false), the values cached by S_CTRL are
+	 * never applied at stream-on and the sensor streams at mode
+	 * defaults (gain 0, SHR0 8). Setting the field at probe does not
+	 * survive: the VI channel re-inits its control handler on first
+	 * open of the video device and v4l2_ctrl_handler_setup() pushes
+	 * the OVERRIDE_ENABLE control default (0) through s_ctrl, which
+	 * clears it (vi/channel.c). set_mode runs at every stream-on
+	 * *before* tegracam checks the flag, so asserting it here wins.
+	 * NB the OVERRIDE_ENABLE control readback stays at its own cached
+	 * value (usually 0) - it is never synced from this field.
+	 */
+	s_data->override_enable = true;
+
 	err = imx415_write_table(priv, mode_table[IMX415_MODE_COMMON]);
 	if (err)
 		return err;
@@ -732,18 +748,6 @@ static int imx415_probe(struct i2c_client *client,
 	priv->subdev = &tc_dev->s_data->subdev;
 	priv->frame_length = IMX415_MIN_FRAME_LENGTH;
 	tegracam_set_privdata(tc_dev, (void *)priv);
-
-	/*
-	 * Raw V4L2 sensor with no Argus/ISP consumer: actually program
-	 * user gain/exposure/frame_rate controls into the hardware. With
-	 * the tegracam default (false), control writes are only cached -
-	 * S_CTRL succeeds but the registers never change (measured on
-	 * target: GAIN_PCG_0/SHR0 stay at mode defaults through any
-	 * v4l2-ctl -c gain/exposure). The OVERRIDE_ENABLE control can
-	 * still switch this off at runtime if something ever needs the
-	 * caching behavior back.
-	 */
-	tc_dev->s_data->override_enable = true;
 
 	err = imx415_board_setup(priv);
 	if (err) {

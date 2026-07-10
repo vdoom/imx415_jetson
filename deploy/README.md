@@ -2,10 +2,15 @@
 
 Contents:
 - `nv_imx415.ko` — vermagic `5.15.185-tegra SMP preempt mod_unload modversions aarch64`;
-  rebuilt 2026-07-10 with `override_enable = true` default at probe, so
-  v4l2 gain/exposure/frame_rate writes actually program the sensor
-  (see `driver/README.md`). After install + reboot verify:
-  `v4l2-ctl -d /dev/video0 -C override_enable` → **1**
+  rebuilt 2026-07-10 (sha1 9d066f36): `set_mode` asserts `override_enable`
+  at every stream-on, so v4l2 gain/exposure/frame_rate writes actually
+  program the sensor (see `driver/README.md`). NB `-C override_enable`
+  reads 0 even when this works (VI-channel cached value) — verify
+  behaviorally: mid-stream `v4l2-ctl -c gain=15000` must visibly brighten.
+  ⚠ Install only from a freshly copied deploy dir — a stale copy on the
+  target reinstalls old artifacts and its checksums still self-verify
+  (this bit us on 2026-07-10: a Phase-F-era `~/imx415_deploy` brought back
+  the embedded-metadata bug).
 - `tegra234-p3767-camera-p3768-imx415.dtbo` — the CAM1 overlay
 - `checksums.sha1` — verified by the installer
 - `install_on_target.sh` — one-shot installer (idempotent, run with sudo)
