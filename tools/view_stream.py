@@ -39,6 +39,7 @@ def frames(args):
     """Yield processed BGR preview frames forever."""
     proc = subprocess.Popen(v4l2_cmd(args), stdout=subprocess.PIPE,
                             stderr=subprocess.DEVNULL, bufsize=FRAME_BYTES)
+    wb_gains = None  # EMA-smoothed gray-world gains (B, G, R)
     try:
         while True:
             buf = proc.stdout.read(FRAME_BYTES)
@@ -51,7 +52,14 @@ def frames(args):
             bgr = cv2.cvtColor(bay8, cv2.COLOR_BayerGR2BGR)
             bgr = cv2.resize(bgr, (W // args.scale, H // args.scale),
                              interpolation=cv2.INTER_AREA)
-            f = bgr.astype(np.float32) - BLACK_8BIT
+            f = np.clip(bgr.astype(np.float32) - BLACK_8BIT, 0.0, None)
+            # gray-world white balance (raw Bayer is green-heavy by design);
+            # EMA-smoothed across frames so the preview doesn't flicker
+            means = f.reshape(-1, 3).mean(axis=0) + 1e-3
+            gains = np.clip(means[1] / means, 0.25, 4.0)
+            wb_gains = gains if wb_gains is None \
+                else 0.9 * wb_gains + 0.1 * gains
+            f *= wb_gains
             f *= 255.0 / max(float(np.percentile(f, 99.0)), 1.0)
             f = np.clip(f, 0.0, 255.0) / 255.0
             yield (255.0 * np.power(f, 1.0 / 2.2)).astype(np.uint8)
