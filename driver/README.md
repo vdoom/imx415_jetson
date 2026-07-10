@@ -59,6 +59,14 @@ Module sha1 history: 560f3796 = 2-lane Phase F originals, d3eab08c =
 set_mode fix (streams 2 fps), 19169df3 = +frame-rate default + exposure
 re-derive.
 
+**VALIDATED on target 2026-07-10** (`tools/expo_gain_check.sh`, I2C
+readback mid-stream, 19169df3 installed): VMAX 2250 (30 fps) in all runs;
+exposure=1000 µs → SHR0 2183 (= 67 lines = 1.00 ms exact), gain 0;
+exposure=33000 µs, gain=15000 → SHR0 23 (= 2227 lines = 33.0 ms exact),
+GAIN_PCG_0 0x32 (15.0 dB). Means reproducible across repeat runs
+(50.6/168.7/50.8). Plain `v4l2-ctl -c exposure=...,gain=...` works with
+no override_enable dance.
+
 Why: the tegracam framework **silently discards** user gain/exposure/
 frame_rate writes unless `override_enable` (control 0x009a2065, default 0)
 is 1 — S_CTRL returns success but the sensor registers never change.
