@@ -91,11 +91,46 @@ Switched mode0 to 4 lanes @ 891 Mbps/lane (LANEMODE=3, HMAX=1100, commit
 - Fallback to the validated 2-lane/15fps state: git tag `phase1-2lane-15fps`
   or `deploy/2lane-15fps-backup/` (two files + reboot).
 
+## IR-CUT investigation — RESOLVED as a Jetson-side drive limitation (2026-07-10)
+
+Measured with an IR remote into the lens (90-frame captures, counting
+saturated pixels):
+
+| Condition | px>900 (90 frames) | Verdict |
+|---|---|---|
+| Jetson, switch pos 1 | 412,982 | IR passes — filter OUT |
+| Jetson, switch pos 2 | 414,528 | IR passes — filter OUT |
+
+**On the Jetson the filter is always in night/IR mode; the physical switch has
+no effect.** Controlled swap test (same module, same switch position): on RPi5
+one power-up click puts it in the switch-selected mode and the switch toggles
+day/night live; back on Jetson, one power-up click always lands on night.
+
+Model established by the experiments:
+- Bistable actuator, **no memory across power-up**: the drive circuit fires a
+  state-setting pulse at each camera power-up.
+- The pulses are triggered by **XCLR edges** (clicks coincide with driver
+  probe at t≈9 s, not with 3.3 V rail-up at boot) — the same connector line we
+  drive as reset-gpios (PAC.00).
+- On RPi5 (CAM_GPIO at 3.3 V logic) the pulse direction honors the switch; on
+  Jetson (camera-connector GPIO at 1.8 V logic) the "day" direction never
+  engages — 1.8 V is enough for the sensor's XCLR but evidently below the
+  IR-CUT direction-driver's threshold, so the default (night) always wins.
+- No light sensor on the board (inspected).
+
+**Consequences:** on Jetson the camera is a good IR/night camera; daytime
+color is IR-polluted and no AWB/CCM can correct it (the calibrated CCMs
+assume IR-blocked light).
+
+**Fix (guide §9.2 route, recommended):** drive the IR-CUT from a 40-pin header
+GPIO (true 3.3 V logic): locate the board's IR-CUT control pad (or inject at
+the physical switch's center pin), one wire + GND, then day/night = gpioset.
+Pending: photos of both PCB sides to identify the injection point.
+
 ## Remaining / next (Phase H)
 
-1. IR-CUT polarity (hardware, wire/switch test — open since Phase A; note:
-   under LED lighting a working filter shows no visible difference — test with
-   an IR remote pointed at the lens and listen for the actuation click).
+1. IR-CUT wire mod (§9.2): identify control pad from PCB photos, wire to
+   40-pin GPIO, then day/night from software (see investigation above).
 2. Phase H options: CUDA debayer + GPU crop/scale to 1080p (recommended first),
    4-lane rework for 30 fps (verify Waveshare PCB routes lanes 3/4 and CAM1 on
    p3768 has 4 lanes wired), sensor-side binned 1080p (donor tables in
