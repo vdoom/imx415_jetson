@@ -13,10 +13,12 @@
 # Mean brightness must track the settings: bright >> dark, a1 ~= a2.
 set -u
 
+# NB the loaded module binary cannot be fingerprinted on this kernel (no
+# CONFIG_MODULE_SRCVERSION_ALL) - reload (rmmod+modprobe) or reboot after
+# installing so the file below is what is actually running.
 KO=/lib/modules/$(uname -r)/updates/drivers/media/i2c/nv_imx415.ko
-echo "== module identity (must match) =="
-echo "installed file: $(modinfo -F srcversion "$KO" 2>/dev/null || echo MISSING)"
-echo "loaded module : $(cat /sys/module/nv_imx415/srcversion 2>/dev/null || echo NOT-LOADED)"
+echo "== installed module file =="
+sha1sum "$KO" 2>/dev/null || echo "MISSING: $KO"
 echo
 
 cap() { # exposure_us gain_mdb outfile

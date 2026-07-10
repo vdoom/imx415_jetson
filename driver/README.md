@@ -35,10 +35,29 @@ Consequence: the control can no longer disable the applied-at-stream-on
 behavior persistently (next stream-on re-asserts it) — intentional, this
 sensor is raw-V4L2-only and the caching default protects nothing here.
 
-Current `deploy/nv_imx415.ko` = sha1 9d066f36 (vermagic = target).
+**Two follow-up fixes (2026-07-10, found by on-target I2C readback once
+overrides started applying):**
+
+1. **FRAME_RATE control started at min (2 fps), not the DT default.**
+   tegracam creates the control at 0 and `v4l2_ctrl_modify_range()` then
+   clamps the *current value* to min_framerate — it never applies the new
+   default. With overrides active, every stream-on programmed VMAX 33750
+   (2 fps) unless userspace set frame_rate explicitly. Probe now
+   initializes the control to `default_framerate` (30 fps) after subdev
+   registration; later user writes persist (the VI channel's first-open
+   handler re-init only re-applies defaults of controls it owns).
+2. **`set_frame_rate` re-applies the last requested exposure.** SHR0
+   encodes exposure relative to VMAX, and stream-on overrides apply
+   exposure *before* frame rate (`tegracam_override_cids` order), i.e.
+   against the previous VMAX — first stream after a frame-rate change got
+   a wildly wrong integration time (measured: requested 1 ms, got 467 ms).
+   `priv->last_exposure_us` is re-derived after every VMAX write.
+
+Current `deploy/nv_imx415.ko` = sha1 19169df3 (vermagic = target).
 Module sha1 history: 560f3796 = 2-lane Phase F originals, d3eab08c =
 4-lane, b1868dae = +12-bit, a89d348c = probe-fix (broken), 9d066f36 =
-set_mode fix.
+set_mode fix (streams 2 fps), 19169df3 = +frame-rate default + exposure
+re-derive.
 
 Why: the tegracam framework **silently discards** user gain/exposure/
 frame_rate writes unless `override_enable` (control 0x009a2065, default 0)

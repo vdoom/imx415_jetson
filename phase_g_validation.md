@@ -171,9 +171,20 @@ handler at first open of /dev/video0 and handler_setup applies the
 OVERRIDE_ENABLE default (0), clearing the field (`vi/channel.c`). set_mode
 runs before tegracam's override check in s_stream, so it wins. NB the
 `-C override_enable` readback is the VI channel's cached control value —
-it reads 0 even when the fix works; verify behaviorally (gain=15000
-brightens). Details in `driver/README.md`. The userspace setting stays as
-belt-and-suspenders.
+it reads 0 even when the fix works; verify behaviorally
+(`tools/expo_gain_check.sh`). Details in `driver/README.md`. The userspace
+setting stays as belt-and-suspenders.
+
+**Enabling overrides exposed two more bugs (2026-07-10, I2C readback):**
+the FRAME_RATE control value sat at min_framerate = 2 fps (created at 0,
+range-clamped — the DT default is never applied to the *value*), so every
+stream-on programmed VMAX 33750 → 2 fps streams; and overrides apply
+exposure before frame rate, so SHR0 was computed against the previous VMAX
+(requested 1 ms → actual 467 ms on the first stream after load — this
+produced the seemingly "inverted" brightness during validation). Fixed in
+the driver: FRAME_RATE control initialized to default_framerate at probe;
+set_frame_rate re-derives SHR0 from the last requested exposure after
+every VMAX write.
 
 **Day-mode color confirmed by data** (same session): raw ratios under mixed
 light R/G 0.54, B/G 0.31 — red is not IR-inflated, so the IR-CUT coil wire

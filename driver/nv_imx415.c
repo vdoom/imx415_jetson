@@ -66,6 +66,7 @@ struct imx415 {
 	struct i2c_client		*i2c_client;
 	struct v4l2_subdev		*subdev;
 	u32				frame_length;
+	s64				last_exposure_us;
 	struct camera_common_data	*s_data;
 	struct tegracam_device		*tc_dev;
 };
@@ -191,6 +192,8 @@ static int imx415_set_gain(struct tegracam_device *tc_dev, s64 val)
 	return 0;
 }
 
+static int imx415_set_exposure(struct tegracam_device *tc_dev, s64 val);
+
 static int imx415_set_frame_rate(struct tegracam_device *tc_dev, s64 val)
 {
 	struct camera_common_data *s_data = tc_dev->s_data;
@@ -224,6 +227,16 @@ static int imx415_set_frame_rate(struct tegracam_device *tc_dev, s64 val)
 	}
 
 	priv->frame_length = frame_length;
+
+	/*
+	 * SHR0 encodes exposure relative to VMAX, so a VMAX change silently
+	 * changes the integration time (VMAX - SHR0). Re-derive SHR0 for
+	 * the last requested exposure - also covers stream-on overrides,
+	 * which apply exposure *before* frame rate (tegracam_override_cids
+	 * order), i.e. against the previous VMAX.
+	 */
+	if (priv->last_exposure_us)
+		return imx415_set_exposure(tc_dev, priv->last_exposure_us);
 
 	return 0;
 }
@@ -272,6 +285,8 @@ static int imx415_set_exposure(struct tegracam_device *tc_dev, s64 val)
 		dev_dbg(dev, "%s: exposure control error\n", __func__);
 		return err;
 	}
+
+	priv->last_exposure_us = val;
 
 	return 0;
 }
@@ -761,6 +776,30 @@ static int imx415_probe(struct i2c_client *client,
 		tegracam_device_unregister(tc_dev);
 		dev_err(dev, "tegra camera subdev registration failed\n");
 		return err;
+	}
+
+	/*
+	 * The FRAME_RATE control is created at 0 and range-clamping then
+	 * leaves its value at min_framerate (2 fps), not default_framerate:
+	 * v4l2_ctrl_modify_range() clamps the current value into the new
+	 * range but never applies the new default. With overrides enabled,
+	 * every stream-on would program VMAX for 2 fps unless userspace set
+	 * frame_rate explicitly (measured on target: VMAX 33750). Start the
+	 * control at the DT default (30 fps); later user writes persist -
+	 * the VI channel's first-open handler re-init only re-applies
+	 * defaults of controls it owns, not the subdev's.
+	 */
+	{
+		struct v4l2_ctrl *ctrl = v4l2_ctrl_find(
+			&tc_dev->s_data->tegracam_ctrl_hdl->ctrl_handler,
+			TEGRA_CAMERA_CID_FRAME_RATE);
+
+		if (ctrl)
+			v4l2_ctrl_s_ctrl_int64(ctrl,
+				tc_dev->s_data->sensor_props.sensor_modes[0]
+					.control_properties.default_framerate);
+		else
+			dev_warn(dev, "no frame_rate control to initialize\n");
 	}
 
 	dev_dbg(dev, "detected imx415 sensor\n");
