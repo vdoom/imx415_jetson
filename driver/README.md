@@ -13,6 +13,39 @@ there.
 (= target), alias `of:N*T*Csony,imx415*`, depends `tegra-camera`.
 **Not yet tested on hardware** — that's Phase F/G.
 
+## ⚠ PENDING HOST REBUILD: override_enable default (source changed 2026-07-10)
+
+`nv_imx415.c` probe now sets `tc_dev->s_data->override_enable = true;`
+(right after `tegracam_set_privdata`). **The deployed `deploy/nv_imx415.ko`
+and the BSP-tree copy predate this change** — to pick it up:
+
+1. re-sync `nv_imx415.c` from this directory to the BSP tree (path above),
+2. rebuild `nv_imx415.ko` on the host as usual,
+3. redeploy to the target (`deploy/install_on_target.sh` flow),
+4. verify on target after a clean boot, **before any tool has run**:
+   `v4l2-ctl -d /dev/video0 -C override_enable` must read **1**, and a
+   `v4l2-ctl -c gain=15000` must actually brighten a stream.
+
+Why: the tegracam framework **silently discards** user gain/exposure/
+frame_rate writes unless `override_enable` (control 0x009a2065, default 0)
+is 1 — S_CTRL returns success but the sensor registers never change.
+Measured on target 2026-07-10 by direct I2C readback while streaming:
+GAIN_PCG_0/SHR0 stayed frozen at mode defaults (gain 0, SHR0 8) through any
+`v4l2-ctl -c`; full experiment log in `phase_g_validation.md`. With the flag
+set, both stream-start application and mid-stream changes are register-exact
+(gain 15000 mdB → GAIN_PCG_0 0x32; exposure 10000 µs → SHR0 1575 @ VMAX 2250).
+
+Rationale for a driver-side default: this sensor is raw-V4L2-only (no
+Argus/ISP tuning exists for it), so NVIDIA's default-0 protects nothing here
+and only breaks standard V4L2 tooling. The OVERRIDE_ENABLE control remains
+functional for switching the caching behavior back at runtime. The field is
+set once at probe and survives device open/close cycles (verified on target:
+nothing re-applies the control default after probe).
+
+Until the rebuilt .ko is deployed, userspace must set `override_enable=1`
+itself — `tools/view_stream.py` and `tools/cuda_debayer` already do, and
+that stays in place as belt-and-suspenders (harmless with the new driver).
+
 ## Provenance of every register value
 
 | Block | Source |

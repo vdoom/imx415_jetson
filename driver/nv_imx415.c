@@ -733,6 +733,18 @@ static int imx415_probe(struct i2c_client *client,
 	priv->frame_length = IMX415_MIN_FRAME_LENGTH;
 	tegracam_set_privdata(tc_dev, (void *)priv);
 
+	/*
+	 * Raw V4L2 sensor with no Argus/ISP consumer: actually program
+	 * user gain/exposure/frame_rate controls into the hardware. With
+	 * the tegracam default (false), control writes are only cached -
+	 * S_CTRL succeeds but the registers never change (measured on
+	 * target: GAIN_PCG_0/SHR0 stay at mode defaults through any
+	 * v4l2-ctl -c gain/exposure). The OVERRIDE_ENABLE control can
+	 * still switch this off at runtime if something ever needs the
+	 * caching behavior back.
+	 */
+	tc_dev->s_data->override_enable = true;
+
 	err = imx415_board_setup(priv);
 	if (err) {
 		tegracam_device_unregister(tc_dev);

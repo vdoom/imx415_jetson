@@ -24,7 +24,12 @@ BLACK_10BIT = 60.0  # calibrated black level (RPi tuning file), 10-bit scale
 
 
 def v4l2_cmd(args):
-    ctrls = f"bypass_mode=0,exposure={args.exposure},gain={args.gain}"
+    # override_enable=1 is required for exposure/gain to reach the sensor:
+    # without it the tegracam framework only caches the values (S_CTRL
+    # succeeds, registers never change) and the sensor streams at mode
+    # defaults (gain 0). Measured via direct I2C readback of GAIN_PCG_0.
+    ctrls = f"bypass_mode=0,override_enable=1," \
+            f"exposure={args.exposure},gain={args.gain}"
     # Pin sensor_mode=0 (10-bit) BEFORE the format: the mode control latches
     # across processes, so a prior 12-bit run would otherwise leave the sensor
     # emitting RAW12 while we ask VI for GB10 -> every frame discarded.

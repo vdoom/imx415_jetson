@@ -137,6 +137,45 @@ assume IR-blocked light).
 - Tier 2 (software day/night): dual H-bridge breakout (DRV8833/L9110S) between
   two 40-pin GPIOs and the coil → `gpioset`-controlled polarity.
 
+## Sensor controls silently ignored without override_enable=1 — measured (2026-07-10)
+
+Symptom while validating day-mode color: exposure sweep 59→33000 µs and gain
+0→30000 mdB produced **bit-identical noise floors** — yet every `v4l2-ctl -c`
+returned success. Direct I2C readback (bus 9, addr 0x37, `i2ctransfer -f`)
+while streaming showed GAIN_PCG_0=0 and SHR0=8 (mode defaults) regardless of
+what was set; writing GAIN_PCG_0 directly over I2C brightened the stream at
+the next frame, proving sensor + bus healthy.
+
+**Root cause:** the tegracam framework only *caches* user gain/exposure/
+frame_rate writes and applies them to the sensor at stream-on **only when the
+`override_enable` control (0x009a2065, default 0) is 1**. With it 0 (our
+state all along), S_CTRL succeeds, registers never change, and the sensor
+streams at mode defaults: SHR0=8 (≈ full-frame exposure) and gain 0.
+
+Consequences for earlier results: every capture until now ran at gain 0 /
+max exposure — the "green day mode", the washed-out `day.ppm`, and all
+low-light noise complaints were symptoms of this, not of AWB/CCM.
+
+**Fix:** set `override_enable=1` before streaming — now done by
+`tools/view_stream.py` and `tools/cuda_debayer` (which also gained
+`--exposure/--gain`). With it, register readback confirms exact programming
+(gain 10000 mdB → GAIN_PCG_0=0x21=33 steps ≙ 9.9 dB; exposure 20000 µs @
+VMAX 2250 → SHR0=900 exactly). Mid-stream control changes also land
+register-exact once the flag is set — it gates all user control writes,
+not just the stream-start application.
+
+**Proper fix (driver-side, PENDING HOST REBUILD):** `driver/nv_imx415.c`
+probe now defaults `s_data->override_enable = true` — needs re-sync to the
+BSP tree, host rebuild and redeploy; steps + verification in
+`driver/README.md`. Until then the userspace setting above carries it.
+
+**Day-mode color confirmed by data** (same session): raw ratios under mixed
+light R/G 0.54, B/G 0.31 — red is not IR-inflated, so the IR-CUT coil wire
+mod holds the filter in the day position. Gray-world point sits ~0.07 off
+the RPi-calibrated AWB CT curve (different IR-cut glass/lens than RPi's
+calibration unit) — WB must stay gray-world; the curve is only good for CT
+estimation (CCM/ALSC selection). See tools/cuda_debayer/README.md.
+
 ## Remaining / next (Phase H)
 
 1. IR-CUT wire mod (§9.2): identify control pad from PCB photos, wire to
