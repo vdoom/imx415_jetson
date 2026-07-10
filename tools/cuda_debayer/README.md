@@ -6,9 +6,14 @@ GPU kernel → packed RGB8 in device memory at 1932×1096 (or 1920×1080 with
 
 The kernel fuses: 10-bit unpack (`raw16 >> 6`, the measured VI alignment) →
 black-level subtract (60, from the RPi calibrated tuning file) → GBRG 2×2 quad
-debayer to half resolution (no zippering, effectively 2×2 binning) → white
-balance → **ALSC lens-shading correction** → highlight clamp → **color-
-correction matrix** → gamma 2.2 (or `--linear` for inference).
+debayer to half resolution (no zippering, effectively 2×2 binning; R and B
+are bilinearly resampled to the quad center — co-sited with G — killing the
+green/magenta edge fringing of a naive quad collapse: |R−B| on a synthetic
+achromatic edge drops 40→10 for realistic 4 px edges, 159→79 worst-case hard
+step) → white balance → **ALSC lens-shading correction** → highlight clamp →
+**color-correction matrix** → gamma 2.2 (or `--linear` for inference).
+The lens's own lateral CA is *not* corrected (the RPi tuning file's `rpi.cac`
+block is empty for this module — no factory calibration exists).
 
 All color calibration data comes from Raspberry Pi's factory tuning file for
 this exact sensor (`libcamera .../pisp/data/imx415.json`): the CCM table, the

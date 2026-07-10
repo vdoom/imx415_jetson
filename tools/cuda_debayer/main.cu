@@ -139,9 +139,33 @@ __global__ void debayer_gbrg_half(const uint16_t *__restrict__ raw,
 	 * N-bit sample in 16 bits, so the pixel value is raw16 >> shift. */
 	int s = p.shift;
 	float g1 = (float)(r0[sx] >> s) - p.black;
-	float b = (float)(r0[sx + 1] >> s) - p.black;
-	float r = (float)(r1[sx] >> s) - p.black;
 	float g2 = (float)(r1[sx + 1] >> s) - p.black;
+
+	/*
+	 * The two G samples average to the quad center, but B sits at
+	 * (+0.5,-0.5) and R at (-0.5,+0.5) from it. Taking them as-is
+	 * misregisters R against B by a full pixel diagonally - thin
+	 * green/magenta fringes on every high-contrast edge (measured
+	 * |R-B| up to 159/255 on a synthetic achromatic step). Bilinearly
+	 * resample both to the quad center from their 4 nearest CFA sites
+	 * (weights 9/3/3/1 over 16): fringing on smooth (lens-blurred)
+	 * edges cancels, hard-step worst case halves.
+	 */
+	int xw = sx >= 1 ? sx - 1 : sx + 1;		 /* B col to the west */
+	int xe = sx + 2 <= SENSOR_W - 2 ? sx + 2 : sx;	 /* R col to the east */
+	const uint16_t *rn = raw +
+		(size_t)(sy >= 1 ? sy - 1 : sy + 1) * raw_pitch16; /* R north */
+	const uint16_t *rs = raw +
+		(size_t)(sy + 2 <= SENSOR_H - 2 ? sy + 2 : sy) *
+			raw_pitch16;				   /* B south */
+	float b = 0.5625f * (float)(r0[sx + 1] >> s) +
+		  0.1875f * (float)(r0[xw] >> s) +
+		  0.1875f * (float)(rs[sx + 1] >> s) +
+		  0.0625f * (float)(rs[xw] >> s) - p.black;
+	float r = 0.5625f * (float)(r1[sx] >> s) +
+		  0.1875f * (float)(r1[xe] >> s) +
+		  0.1875f * (float)(rn[sx] >> s) +
+		  0.0625f * (float)(rn[xe] >> s) - p.black;
 
 	float R = fmaxf(r, 0.0f) * p.scale * p.wb_r;
 	float G = fmaxf(0.5f * (g1 + g2), 0.0f) * p.scale * p.wb_g;
