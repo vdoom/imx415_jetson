@@ -49,13 +49,22 @@ python3 gen_tuning.py   # only after changing reference/imx415-tuning-pisp.json
 ## Run
 
 ```bash
-./imx415_debayer --frames 300                       # bench: expect ~30 fps
+./imx415_debayer --ae --frames 300                  # point-and-use: AE + auto color
+./imx415_debayer --ae --snap out.ppm                # exposed + color-corrected snap
 ./imx415_debayer --exposure 33000 --gain 21000 \
-                 --snap out.ppm                     # dim room, full auto color
+                 --snap out.ppm                     # manual exposure, auto color
 ./imx415_debayer --crop1080 --linear --frames 300   # inference-style config
-./imx415_debayer --bits 12 --snap out12.ppm         # 12-bit mode (mode1)
+./imx415_debayer --bits 12 --ae --snap out12.ppm    # 12-bit mode (mode1)
 ```
 
+- `--ae` — auto-exposure: meters the mean green level (full frame,
+  subsampled, ~0.15 ms CPU every other frame) and drives sensor exposure
+  first, then gain, in a damped log-domain loop (deadband ±10%, ~4-frame
+  settle per step, converges in ~1 s from a bad start). Highlight guard
+  steps down when >2% of samples clip. `--exposure/--gain` seed the loop.
+- `--ae-target F` — linear mean target, default 0.10 (≈0.35 after gamma)
+- `--ae-max-exp US` — exposure ceiling before gain kicks in, default 33000
+  (stays within the 30 fps frame; raise only if lower fps is acceptable)
 - `--exposure US` / `--gain MDB` — sensor exposure (µs) and gain (milli-dB,
   0..30000); omitted = keep the last values set via v4l2-ctl
 - `--bits 10|12` — sensor bit depth: selects DT mode0 (GB10) or mode1 (GB12)

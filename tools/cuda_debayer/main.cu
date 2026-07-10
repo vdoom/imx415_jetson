@@ -389,6 +389,101 @@ static int measure_ratios(const uint16_t *raw, int pitch16, int shift,
 	return 1;
 }
 
+/* ------------------------------------------------------------------ */
+/* auto-exposure                                                       */
+/* ------------------------------------------------------------------ */
+
+#define AE_EXP_MIN_US 59    /* DT min_exp_time */
+#define AE_GAIN_MAX_MDB 30000
+#define AE_GAIN_STEP_MDB 300 /* driver quantizes to 0.3 dB anyway */
+#define AE_SETTLE_FRAMES 4  /* control write lands ~2 frames later */
+
+/*
+ * Mean green level (0..1, black-subtracted) and clipped-sample fraction,
+ * full frame subsampled 16x16. Same CPU-side read of the uncached buffer
+ * as measure_ratios: ~130 KB touched, ~0.15 ms.
+ */
+static void measure_luma(const uint16_t *raw, int pitch16, int shift,
+			 float black, float maxval, float *mean01, float *sat)
+{
+	double sg = 0;
+	long n = 0, nsat = 0;
+	float satlvl = 0.98f * maxval;
+
+	for (int y = 0; y < SENSOR_H - 1; y += 16) {
+		const uint16_t *r0 = raw + (size_t)y * pitch16;
+		const uint16_t *r1 = r0 + pitch16;
+		for (int x = 0; x < SENSOR_W - 1; x += 16) {
+			/* GBRG quad: G at r0[x] and r1[x+1] */
+			float g1 = (float)(r0[x] >> shift);
+			float g2 = (float)(r1[x + 1] >> shift);
+			if (g1 >= satlvl || g2 >= satlvl)
+				nsat++;
+			float g = 0.5f * (g1 + g2) - black;
+			sg += g > 0 ? g : 0;
+			n++;
+		}
+	}
+	*mean01 = n ? (float)(sg / n) / (maxval - black) : 0.0f;
+	*sat = n ? (float)nsat / n : 0.0f;
+}
+
+struct AeState {
+	int enabled;
+	float target;      /* linear mean target, 0..1 */
+	int64_t exp_us;    /* current sensor state (we own it) */
+	int64_t gain_mdb;
+	int64_t exp_max_us;
+	int settle;        /* frames until metering resumes */
+};
+
+/*
+ * One damped AE step: exposure carries the correction until it hits
+ * exp_max_us, gain takes the remainder. Log-domain damping (^0.6) plus a
+ * +-10% deadband keeps it from hunting; the highlight guard steps down
+ * when >2% of samples clip even if the mean is on target (a lamp in a
+ * dark room should roll off, not drag the whole frame up).
+ */
+static void ae_update(struct AeState *ae, int fd, float mean01, float sat)
+{
+	if (mean01 <= 0.0f)
+		return;
+
+	float err = ae->target / mean01;
+	err = fminf(fmaxf(err, 0.125f), 8.0f);
+	if (sat > 0.02f && err > 0.7f)
+		err = 0.7f;
+	if (err > 0.90f && err < 1.10f)
+		return;
+
+	float factor = expf(0.6f * logf(err));
+	double total = (double)ae->exp_us *
+		       pow(10.0, ae->gain_mdb / 20000.0) * factor;
+
+	int64_t e = (int64_t)(total + 0.5);
+	if (e > ae->exp_max_us)
+		e = ae->exp_max_us;
+	if (e < AE_EXP_MIN_US)
+		e = AE_EXP_MIN_US;
+	int64_t g = (int64_t)(20000.0 * log10(total / e) /
+				      AE_GAIN_STEP_MDB + 0.5) *
+		    AE_GAIN_STEP_MDB;
+	if (g < 0)
+		g = 0;
+	if (g > AE_GAIN_MAX_MDB)
+		g = AE_GAIN_MAX_MDB;
+
+	if (e == ae->exp_us && g == ae->gain_mdb)
+		return;
+	ae->exp_us = e;
+	ae->gain_mdb = g;
+	ae->settle = AE_SETTLE_FRAMES;
+	set_i64_ctrl(fd, TEGRA_CID_EXPOSURE, e, "exposure");
+	set_i64_ctrl(fd, TEGRA_CID_GAIN, g, "gain");
+	printf("ae: mean %.3f sat %.1f%% -> exposure %lld us, gain %lld mdB\n",
+	       mean01, 100.0 * sat, (long long)e, (long long)g);
+}
+
 /*
  * Estimate the illuminant CT by projecting measured (r, b) ratios onto
  * the calibrated AWB CT curve (the locus of neutral-patch ratios over
@@ -502,6 +597,9 @@ int main(int argc, char **argv)
 	int crop1080 = 0, awb = 1, linear = 0, bits = 10;
 	int use_alsc = 1, no_ccm = 0, wb_manual = 0;
 	int64_t exposure_us = -1, gain_mdb = -1; /* <0 = keep cached value */
+	int ae_on = 0;
+	float ae_target = 0.10f; /* linear mean; ~0.35 after gamma 2.2 */
+	int64_t ae_exp_max = 33000; /* stays within the 30 fps frame */
 	float wb_r = 1.0f, wb_g = 1.0f, wb_b = 1.0f;
 	float ct = 0.0f; /* 0 = auto from AWB; --ct forces */
 
@@ -520,6 +618,12 @@ int main(int argc, char **argv)
 			exposure_us = atoll(argv[++i]);
 		else if (!strcmp(argv[i], "--gain") && i + 1 < argc)
 			gain_mdb = atoll(argv[++i]);
+		else if (!strcmp(argv[i], "--ae"))
+			ae_on = 1;
+		else if (!strcmp(argv[i], "--ae-target") && i + 1 < argc)
+			ae_target = atof(argv[++i]);
+		else if (!strcmp(argv[i], "--ae-max-exp") && i + 1 < argc)
+			ae_exp_max = atoll(argv[++i]);
 		else if (!strcmp(argv[i], "--crop1080"))
 			crop1080 = 1;
 		else if (!strcmp(argv[i], "--awb"))
@@ -544,6 +648,7 @@ int main(int argc, char **argv)
 				"usage: %s [--device /dev/video0] [--frames N]\n"
 				"  [--snap out.ppm] [--snap-at N] [--bits 10|12]\n"
 				"  [--exposure US] [--gain MDB] [--crop1080]\n"
+				"  [--ae] [--ae-target F] [--ae-max-exp US]\n"
 				"  [--no-awb] [--wb R G B] [--ct kelvin]\n"
 				"  [--no-ccm] [--no-alsc] [--linear]\n",
 				argv[0]);
@@ -553,6 +658,14 @@ int main(int argc, char **argv)
 	if (bits != 10 && bits != 12) {
 		fprintf(stderr, "--bits must be 10 or 12\n");
 		return 1;
+	}
+	if (ae_on) {
+		/* AE owns the sensor state, so start from known values
+		 * (--exposure/--gain, if given, seed the loop) */
+		if (exposure_us < 0)
+			exposure_us = 10000;
+		if (gain_mdb < 0)
+			gain_mdb = 0;
 	}
 
 	/*
@@ -634,6 +747,19 @@ int main(int argc, char **argv)
 	float kern_ms_sum = 0;
 	double copy_s_sum = 0;
 	int color_at = frames > 8 ? 8 : frames - 1;
+	int color_done = 0, awb_retries = 0;
+
+	struct AeState ae = {};
+	ae.enabled = ae_on;
+	ae.target = ae_target;
+	ae.exp_us = exposure_us;
+	ae.gain_mdb = gain_mdb;
+	ae.exp_max_us = ae_exp_max;
+	ae.settle = 6; /* skip the stream-start frames (no exposure yet) */
+	if (ae.enabled)
+		printf("ae: on, target %.3f, exposure %lld us / gain %lld mdB "
+		       "start\n",
+		       ae.target, (long long)ae.exp_us, (long long)ae.gain_mdb);
 
 	for (int i = 0; i < frames; i++) {
 		struct v4l2_buffer b;
@@ -642,12 +768,26 @@ int main(int argc, char **argv)
 		if (i == 0)
 			t_start = now_s();
 
+		if (ae.enabled) {
+			if (ae.settle > 0) {
+				ae.settle--;
+			} else if (i % 2 == 0) { /* every other frame */
+				float m, s;
+				measure_luma((const uint16_t *)
+						     cap.buf_start[idx],
+					     pitch16, p.shift, p.black,
+					     maxval, &m, &s);
+				ae_update(&ae, cap.fd, m, s);
+			}
+		}
+
 		/* AWB after a short warm-up: exposure/gain programmed at
 		 * stream-on only take effect a few frames in */
-		if (i == color_at) {
+		if (!color_done && i >= color_at) {
 			/* AWB -> CT estimate -> CCM/ALSC selection, all
 			 * from the calibrated tuning data */
 			float ct_used = ct; /* >0 = forced via --ct */
+			color_done = 1;
 			if (awb) {
 				float rm, bm;
 				if (measure_ratios(
@@ -666,6 +806,15 @@ int main(int argc, char **argv)
 					       "%.0f K, gains R %.3f B %.3f\n",
 					       rm, bm, ct_est, p.wb_r,
 					       p.wb_b);
+				} else if (ae.enabled && awb_retries++ < 5 &&
+					   i + 30 < frames) {
+					/* AE is still brightening the scene */
+					color_at = i + 30;
+					color_done = 0;
+					fprintf(stderr,
+						"awb: frame too dark, "
+						"retrying at frame %d\n",
+						color_at);
 				} else {
 					fprintf(stderr,
 						"awb: frame too dark, "
@@ -678,22 +827,26 @@ int main(int argc, char **argv)
 				       "B %.3f\n",
 				       ct_used, p.wb_r, p.wb_b);
 			}
-			if (ct_used <= 0)
-				ct_used = 4600.0f; /* nothing measured/forced */
-			if (!no_ccm)
-				ccm_for_ct(ct_used, p.ccm);
-			if (use_alsc) {
-				float h_alsc[3 * ALSC_GRID * ALSC_GRID];
-				alsc_build(ct_used, h_alsc);
-				CUDA_CHECK(cudaMemcpy(d_alsc, h_alsc,
-						      sizeof(h_alsc),
-						      cudaMemcpyHostToDevice));
-				p.alsc_r = d_alsc;
-				p.alsc_b = d_alsc + ALSC_GRID * ALSC_GRID;
-				p.alsc_l = d_alsc + 2 * ALSC_GRID * ALSC_GRID;
+			if (color_done) {
+				if (ct_used <= 0)
+					ct_used = 4600.0f; /* nothing measured */
+				if (!no_ccm)
+					ccm_for_ct(ct_used, p.ccm);
+				if (use_alsc) {
+					float h_alsc[3 * ALSC_GRID * ALSC_GRID];
+					alsc_build(ct_used, h_alsc);
+					CUDA_CHECK(cudaMemcpy(
+						d_alsc, h_alsc, sizeof(h_alsc),
+						cudaMemcpyHostToDevice));
+					p.alsc_r = d_alsc;
+					p.alsc_b = d_alsc + ALSC_GRID * ALSC_GRID;
+					p.alsc_l = d_alsc +
+						   2 * ALSC_GRID * ALSC_GRID;
+				}
+				printf("color: CT %.0f K, CCM %s, ALSC %s\n",
+				       ct_used, no_ccm ? "off" : "on",
+				       use_alsc ? "on" : "off");
 			}
-			printf("color: CT %.0f K, CCM %s, ALSC %s\n", ct_used,
-			       no_ccm ? "off" : "on", use_alsc ? "on" : "off");
 		}
 
 		const uint16_t *src;
