@@ -40,30 +40,24 @@
 #define BLACK_LEVEL 60.0f
 #define NUM_BUFFERS 8
 #define TEGRA_CID_VI_BYPASS_MODE 0x009a2064
+/*
+ * Without OVERRIDE_ENABLE=1 the tegracam framework only CACHES user
+ * gain/exposure/frame_rate writes (S_CTRL returns 0) and never programs
+ * the sensor - measured on this board: GAIN_PCG_0/SHR0 stay at mode
+ * defaults through any v4l2-ctl -c gain=.../exposure=... Setting it makes
+ * the framework apply the cached controls at stream start.
+ */
+#define TEGRA_CID_OVERRIDE_ENABLE 0x009a2065
 #define TEGRA_CID_SENSOR_MODE_ID 0x009a2008
+#define TEGRA_CID_GAIN 0x009a2009
+#define TEGRA_CID_EXPOSURE 0x009a200a
 
 /*
- * Color correction matrices from the Raspberry Pi calibrated tuning file
- * for this sensor (libcamera src/ipa/rpi/pisp/data/imx415.json, rpi.ccm).
- * Applied to white-balanced linear RGB; interpolated by color temperature.
+ * CCM table, AWB CT curve and ALSC (lens shading) grids from the Raspberry
+ * Pi calibrated tuning file for this sensor (libcamera
+ * src/ipa/rpi/pisp/data/imx415.json), regenerate with gen_tuning.py.
  */
-struct CcmEntry {
-	float ct;
-	float m[9];
-};
-static const CcmEntry ccm_table[] = {
-	{ 2698, { 1.572f, -0.328f, -0.245f, -0.613f, 1.705f, -0.092f,
-		  -0.434f, 0.481f, 0.953f } },
-	{ 2930, { 1.696f, -0.530f, -0.166f, -0.671f, 1.785f, -0.113f,
-		  -0.418f, 0.546f, 0.872f } },
-	{ 3643, { 1.726f, -0.724f, -0.002f, -0.459f, 1.405f, 0.054f,
-		  -0.145f, -0.798f, 1.943f } },
-	{ 4605, { 1.499f, -0.419f, -0.080f, -0.392f, 1.695f, -0.302f,
-		  0.016f, -0.885f, 1.870f } },
-	{ 5658, { 1.388f, -0.232f, -0.156f, -0.375f, 1.703f, -0.328f,
-		  -0.013f, -0.720f, 1.734f } },
-};
-#define CCM_TABLE_LEN (sizeof(ccm_table) / sizeof(ccm_table[0]))
+#include "tuning_data.h"
 
 #define CUDA_CHECK(call)                                                     \
 	do {                                                                 \
@@ -96,7 +90,27 @@ struct ProcParams {
 	float ccm[9];    /* row-major color matrix (identity to disable) */
 	float inv_gamma; /* 1/2.2, or 1.0 for linear output */
 	int ox, oy;      /* crop offset in output (half-res) coordinates */
+	/* ALSC gain grids (ALSC_GRID^2, device memory), NULL = disabled;
+	 * alsc_l is pre-baked with the luminance strength on the host */
+	const float *alsc_r, *alsc_b, *alsc_l;
 };
+
+/* Bilinear sample of a 32x32 ALSC grid at full-res pixel coords (fx, fy). */
+__device__ static float alsc_sample(const float *tab, float fx, float fy)
+{
+	float gx = fx * (float)ALSC_GRID / SENSOR_W - 0.5f;
+	float gy = fy * (float)ALSC_GRID / SENSOR_H - 0.5f;
+	gx = fminf(fmaxf(gx, 0.0f), ALSC_GRID - 1.0f);
+	gy = fminf(fmaxf(gy, 0.0f), ALSC_GRID - 1.0f);
+	int x0 = (int)gx, y0 = (int)gy;
+	int x1 = min(x0 + 1, ALSC_GRID - 1), y1 = min(y0 + 1, ALSC_GRID - 1);
+	float ax = gx - x0, ay = gy - y0;
+	float top = tab[y0 * ALSC_GRID + x0] * (1.0f - ax) +
+		    tab[y0 * ALSC_GRID + x1] * ax;
+	float bot = tab[y1 * ALSC_GRID + x0] * (1.0f - ax) +
+		    tab[y1 * ALSC_GRID + x1] * ax;
+	return top * (1.0f - ay) + bot * ay;
+}
 
 __global__ void debayer_gbrg_half(const uint16_t *__restrict__ raw,
 				  int raw_pitch16, uint8_t *__restrict__ rgb,
@@ -123,6 +137,22 @@ __global__ void debayer_gbrg_half(const uint16_t *__restrict__ raw,
 	float R = fmaxf(r, 0.0f) * p.scale * p.wb_r;
 	float G = fmaxf(0.5f * (g1 + g2), 0.0f) * p.scale * p.wb_g;
 	float B = fmaxf(b, 0.0f) * p.scale * p.wb_b;
+
+	/* lens shading: Cr/Cb color gains + attenuated luminance gain,
+	 * sampled at the 2x2 quad center */
+	if (p.alsc_r) {
+		float fx = sx + 1.0f, fy = sy + 1.0f;
+		float lum = alsc_sample(p.alsc_l, fx, fy);
+		R *= alsc_sample(p.alsc_r, fx, fy) * lum;
+		G *= lum;
+		B *= alsc_sample(p.alsc_b, fx, fy) * lum;
+	}
+
+	/* clamp before the CCM: G saturates first, so unclamped WB'd R/B
+	 * would tint blown highlights pink through the matrix */
+	R = fminf(R, 1.0f);
+	G = fminf(G, 1.0f);
+	B = fminf(B, 1.0f);
 
 	float Rc = p.ccm[0] * R + p.ccm[1] * G + p.ccm[2] * B;
 	float Gc = p.ccm[3] * R + p.ccm[4] * G + p.ccm[5] * B;
@@ -155,8 +185,24 @@ struct Capture {
 	unsigned int sizeimage;
 };
 
+/* int64 controls (sensor_mode/gain/exposure) need S_EXT_CTRLS; S_CTRL
+ * only handles 32-bit and returns EINVAL. */
+static void set_i64_ctrl(int fd, uint32_t id, int64_t val, const char *name)
+{
+	struct v4l2_ext_control ec = {};
+	ec.id = id;
+	ec.value64 = val;
+	struct v4l2_ext_controls ecs = {};
+	ecs.which = V4L2_CTRL_WHICH_CUR_VAL;
+	ecs.count = 1;
+	ecs.controls = &ec;
+	if (xioctl(fd, VIDIOC_S_EXT_CTRLS, &ecs) < 0)
+		fprintf(stderr, "warning: %s not set (%s)\n", name,
+			strerror(errno));
+}
+
 static void cap_open(Capture *c, const char *dev, uint32_t pixfmt,
-		     int sensor_mode)
+		     int sensor_mode, int64_t exposure_us, int64_t gain_mdb)
 {
 	c->fd = open(dev, O_RDWR | O_NONBLOCK);
 	if (c->fd < 0) {
@@ -171,23 +217,25 @@ static void cap_open(Capture *c, const char *dev, uint32_t pixfmt,
 		fprintf(stderr, "warning: bypass_mode not set (%s)\n",
 			strerror(errno));
 
-	/*
-	 * Select the DT modeN (0 = 10-bit, 1 = 12-bit) before S_FMT.
-	 * sensor_mode is an int64 control, so it needs S_EXT_CTRLS (not
-	 * S_CTRL, which only handles 32-bit and returns EINVAL). The
-	 * requested pixel format (GB10/GB12) also drives mode selection,
-	 * so this is belt-and-suspenders for the same-resolution modes.
-	 */
-	struct v4l2_ext_control ec = {};
-	ec.id = TEGRA_CID_SENSOR_MODE_ID;
-	ec.value64 = sensor_mode;
-	struct v4l2_ext_controls ecs = {};
-	ecs.which = V4L2_CTRL_WHICH_CUR_VAL;
-	ecs.count = 1;
-	ecs.controls = &ec;
-	if (xioctl(c->fd, VIDIOC_S_EXT_CTRLS, &ecs) < 0)
-		fprintf(stderr, "warning: sensor_mode not set (%s)\n",
+	/* Without this the sensor silently ignores gain/exposure (see top). */
+	ctrl.id = TEGRA_CID_OVERRIDE_ENABLE;
+	ctrl.value = 1;
+	if (xioctl(c->fd, VIDIOC_S_CTRL, &ctrl) < 0)
+		fprintf(stderr, "warning: override_enable not set (%s)\n",
 			strerror(errno));
+
+	/* Select the DT modeN (0 = 10-bit, 1 = 12-bit) before S_FMT. The
+	 * requested pixel format (GB10/GB12) also drives mode selection,
+	 * so this is belt-and-suspenders for the same-resolution modes. */
+	set_i64_ctrl(c->fd, TEGRA_CID_SENSOR_MODE_ID, sensor_mode,
+		     "sensor_mode");
+
+	/* <0 = leave the cached value (last v4l2-ctl -c setting) */
+	if (exposure_us >= 0)
+		set_i64_ctrl(c->fd, TEGRA_CID_EXPOSURE, exposure_us,
+			     "exposure");
+	if (gain_mdb >= 0)
+		set_i64_ctrl(c->fd, TEGRA_CID_GAIN, gain_mdb, "gain");
 
 	struct v4l2_format fmt = {};
 	fmt.type = V4L2_BUF_TYPE_VIDEO_CAPTURE;
@@ -309,16 +357,21 @@ static void ccm_for_ct(float ct, float *m)
 	}
 }
 
-/* Gray-world white balance gains from one raw frame (CPU, subsampled). */
-static void gray_world(const uint16_t *raw, int pitch16, int shift, float black,
-		       float *wr, float *wg, float *wb)
+/*
+ * Gray-world channel ratios (r = R/G, b = B/G) from the central half of
+ * one raw frame (CPU, subsampled). Central crop: lens shading is ~flat
+ * there, so the estimate doesn't need ALSC applied first. Returns 0 if
+ * the frame is too dark to trust.
+ */
+static int measure_ratios(const uint16_t *raw, int pitch16, int shift,
+			  float black, float *r_ratio, float *b_ratio)
 {
 	double sr = 0, sg = 0, sb = 0;
 	long n = 0;
-	for (int y = 0; y < SENSOR_H - 1; y += 16) {
+	for (int y = SENSOR_H / 4; y < 3 * SENSOR_H / 4; y += 16) {
 		const uint16_t *r0 = raw + (size_t)y * pitch16;
 		const uint16_t *r1 = r0 + pitch16;
-		for (int x = 0; x < SENSOR_W - 1; x += 16) {
+		for (int x = SENSOR_W / 4; x < 3 * SENSOR_W / 4; x += 16) {
 			float g1 = (float)(r0[x] >> shift) - black;
 			float b = (float)(r0[x + 1] >> shift) - black;
 			float r = (float)(r1[x] >> shift) - black;
@@ -329,10 +382,89 @@ static void gray_world(const uint16_t *raw, int pitch16, int shift, float black,
 			n++;
 		}
 	}
-	if (n && sr > n && sb > n) { /* require some real signal */
-		*wr = (float)(sg / sr);
-		*wb = (float)(sg / sb);
-		*wg = 1.0f;
+	if (!n || sr <= n || sb <= n || sg <= n) /* require real signal */
+		return 0;
+	*r_ratio = (float)(sr / sg);
+	*b_ratio = (float)(sb / sg);
+	return 1;
+}
+
+/*
+ * Estimate the illuminant CT by projecting measured (r, b) ratios onto
+ * the calibrated AWB CT curve (the locus of neutral-patch ratios over
+ * illuminant temperature). CT only selects the CCM and ALSC tables; the
+ * WB gains stay pure gray-world — this module sits ~0.07 off the RPi
+ * curve (different IR-cut filter/lens than the calibrated unit), so
+ * clamping the white point to the curve's transverse limits (0.011/0.014)
+ * was tried and leaves a visible green cast on known-neutral surfaces.
+ */
+static float awb_ct_estimate(float rm, float bm)
+{
+	float best_d2 = 1e30f, best_ct = 4600.0f;
+
+	for (unsigned int i = 0; i + 1 < CT_CURVE_LEN; i++) {
+		float dx = ct_curve[i + 1].r - ct_curve[i].r;
+		float dy = ct_curve[i + 1].b - ct_curve[i].b;
+		float len2 = dx * dx + dy * dy;
+		float t = ((rm - ct_curve[i].r) * dx +
+			   (bm - ct_curve[i].b) * dy) / len2;
+		t = fminf(fmaxf(t, 0.0f), 1.0f);
+		float pr = ct_curve[i].r + t * dx;
+		float pb = ct_curve[i].b + t * dy;
+		float d2 = (rm - pr) * (rm - pr) + (bm - pb) * (bm - pb);
+		if (d2 < best_d2) {
+			best_d2 = d2;
+			best_ct = ct_curve[i].ct +
+				  t * (ct_curve[i + 1].ct - ct_curve[i].ct);
+		}
+	}
+
+	return best_ct;
+}
+
+/* WB gains for a forced CT: the curve point itself (manual WB by kelvin). */
+static void awb_gains_for_ct(float ct, float *wr, float *wb)
+{
+	float rm, bm;
+	if (ct <= ct_curve[0].ct) {
+		rm = ct_curve[0].r;
+		bm = ct_curve[0].b;
+	} else if (ct >= ct_curve[CT_CURVE_LEN - 1].ct) {
+		rm = ct_curve[CT_CURVE_LEN - 1].r;
+		bm = ct_curve[CT_CURVE_LEN - 1].b;
+	} else {
+		rm = bm = 0;
+		for (unsigned int i = 1; i < CT_CURVE_LEN; i++) {
+			if (ct <= ct_curve[i].ct) {
+				float f = (ct - ct_curve[i - 1].ct) /
+					  (ct_curve[i].ct - ct_curve[i - 1].ct);
+				rm = ct_curve[i - 1].r +
+				     f * (ct_curve[i].r - ct_curve[i - 1].r);
+				bm = ct_curve[i - 1].b +
+				     f * (ct_curve[i].b - ct_curve[i - 1].b);
+				break;
+			}
+		}
+	}
+	*wr = 1.0f / rm;
+	*wb = 1.0f / bm;
+}
+
+/*
+ * Build the three ALSC grids for a color temperature: Cr/Cb blended
+ * between the two calibrated CTs, luminance pre-baked with its strength.
+ * dst must hold 3 * ALSC_GRID^2 floats: [Cr | Cb | lum].
+ */
+static void alsc_build(float ct, float *dst)
+{
+	int n = ALSC_GRID * ALSC_GRID;
+	float f = (ct - ALSC_CT_LO) / (float)(ALSC_CT_HI - ALSC_CT_LO);
+	f = fminf(fmaxf(f, 0.0f), 1.0f);
+	for (int i = 0; i < n; i++) {
+		dst[i] = (1.0f - f) * alsc_cr_3000[i] + f * alsc_cr_5000[i];
+		dst[n + i] = (1.0f - f) * alsc_cb_3000[i] + f * alsc_cb_5000[i];
+		dst[2 * n + i] =
+			1.0f + ALSC_LUM_STRENGTH * (alsc_lum[i] - 1.0f);
 	}
 }
 
@@ -367,9 +499,11 @@ int main(int argc, char **argv)
 	int frames = 300;
 	int snap_at = 30;
 	int out_w = SENSOR_W / 2, out_h = SENSOR_H / 2; /* 1932x1096 */
-	int crop1080 = 0, awb = 0, linear = 0, bits = 10;
+	int crop1080 = 0, awb = 1, linear = 0, bits = 10;
+	int use_alsc = 1, no_ccm = 0, wb_manual = 0;
+	int64_t exposure_us = -1, gain_mdb = -1; /* <0 = keep cached value */
 	float wb_r = 1.0f, wb_g = 1.0f, wb_b = 1.0f;
-	float ct = 4600.0f; /* default: daylight-ish CCM; 0 = identity */
+	float ct = 0.0f; /* 0 = auto from AWB; --ct forces */
 
 	for (int i = 1; i < argc; i++) {
 		if (!strcmp(argv[i], "--device") && i + 1 < argc)
@@ -382,26 +516,36 @@ int main(int argc, char **argv)
 			snap_at = atoi(argv[++i]);
 		else if (!strcmp(argv[i], "--bits") && i + 1 < argc)
 			bits = atoi(argv[++i]);
+		else if (!strcmp(argv[i], "--exposure") && i + 1 < argc)
+			exposure_us = atoll(argv[++i]);
+		else if (!strcmp(argv[i], "--gain") && i + 1 < argc)
+			gain_mdb = atoll(argv[++i]);
 		else if (!strcmp(argv[i], "--crop1080"))
 			crop1080 = 1;
 		else if (!strcmp(argv[i], "--awb"))
-			awb = 1;
+			awb = 1; /* default; kept for compatibility */
+		else if (!strcmp(argv[i], "--no-awb"))
+			awb = 0;
+		else if (!strcmp(argv[i], "--no-alsc"))
+			use_alsc = 0;
 		else if (!strcmp(argv[i], "--linear"))
 			linear = 1;
 		else if (!strcmp(argv[i], "--wb") && i + 3 < argc) {
 			wb_r = atof(argv[++i]);
 			wb_g = atof(argv[++i]);
 			wb_b = atof(argv[++i]);
+			wb_manual = 1;
 		} else if (!strcmp(argv[i], "--ct") && i + 1 < argc)
 			ct = atof(argv[++i]);
 		else if (!strcmp(argv[i], "--no-ccm"))
-			ct = 0.0f;
+			no_ccm = 1;
 		else {
 			fprintf(stderr,
 				"usage: %s [--device /dev/video0] [--frames N]\n"
 				"  [--snap out.ppm] [--snap-at N] [--bits 10|12]\n"
-				"  [--crop1080] [--awb] [--wb R G B] [--ct kelvin]\n"
-				"  [--no-ccm] [--linear]\n",
+				"  [--exposure US] [--gain MDB] [--crop1080]\n"
+				"  [--no-awb] [--wb R G B] [--ct kelvin]\n"
+				"  [--no-ccm] [--no-alsc] [--linear]\n",
 				argv[0]);
 			return 1;
 		}
@@ -428,7 +572,7 @@ int main(int argc, char **argv)
 	p.wb_r = wb_r;
 	p.wb_g = wb_g;
 	p.wb_b = wb_b;
-	ccm_for_ct(ct, p.ccm);
+	ccm_for_ct(0, p.ccm); /* identity; real CCM picked at frame 0 */
 	p.inv_gamma = linear ? 1.0f : (1.0f / 2.2f);
 	if (crop1080) {
 		out_w = 1920;
@@ -441,7 +585,7 @@ int main(int argc, char **argv)
 	cudaSetDeviceFlags(cudaDeviceMapHost);
 
 	Capture cap = {};
-	cap_open(&cap, dev, pixfmt, sensor_mode);
+	cap_open(&cap, dev, pixfmt, sensor_mode, exposure_us, gain_mdb);
 	int pitch16 = cap.pitch_bytes / 2;
 
 	/*
@@ -470,9 +614,14 @@ int main(int argc, char **argv)
 
 	uint16_t *d_raw = NULL;
 	uint8_t *d_rgb, *h_rgb;
+	float *d_alsc = NULL;
 	if (!zero_copy)
 		CUDA_CHECK(cudaMalloc(&d_raw, cap.sizeimage));
 	CUDA_CHECK(cudaMalloc(&d_rgb, (size_t)out_w * out_h * 3));
+	if (use_alsc)
+		CUDA_CHECK(cudaMalloc(&d_alsc,
+				      3 * ALSC_GRID * ALSC_GRID *
+					      sizeof(float)));
 	h_rgb = (uint8_t *)malloc((size_t)out_w * out_h * 3);
 
 	dim3 blk(32, 8);
@@ -484,20 +633,67 @@ int main(int argc, char **argv)
 	double t_start = 0;
 	float kern_ms_sum = 0;
 	double copy_s_sum = 0;
+	int color_at = frames > 8 ? 8 : frames - 1;
 
 	for (int i = 0; i < frames; i++) {
 		struct v4l2_buffer b;
 		int idx = cap_dqbuf(&cap, &b);
 
-		if (i == 0) {
-			if (awb) {
-				gray_world((const uint16_t *)cap.buf_start[idx],
-					   pitch16, p.shift, p.black, &p.wb_r,
-					   &p.wb_g, &p.wb_b);
-				printf("awb gains: R %.3f G %.3f B %.3f\n",
-				       p.wb_r, p.wb_g, p.wb_b);
-			}
+		if (i == 0)
 			t_start = now_s();
+
+		/* AWB after a short warm-up: exposure/gain programmed at
+		 * stream-on only take effect a few frames in */
+		if (i == color_at) {
+			/* AWB -> CT estimate -> CCM/ALSC selection, all
+			 * from the calibrated tuning data */
+			float ct_used = ct; /* >0 = forced via --ct */
+			if (awb) {
+				float rm, bm;
+				if (measure_ratios(
+					    (const uint16_t *)cap.buf_start[idx],
+					    pitch16, p.shift, p.black, &rm,
+					    &bm)) {
+					float ct_est = awb_ct_estimate(rm, bm);
+					if (!wb_manual) {
+						p.wb_r = 1.0f / rm;
+						p.wb_g = 1.0f;
+						p.wb_b = 1.0f / bm;
+					}
+					if (ct_used <= 0)
+						ct_used = ct_est;
+					printf("awb: R/G %.3f B/G %.3f -> "
+					       "%.0f K, gains R %.3f B %.3f\n",
+					       rm, bm, ct_est, p.wb_r,
+					       p.wb_b);
+				} else {
+					fprintf(stderr,
+						"awb: frame too dark, "
+						"keeping current gains\n");
+				}
+			} else if (!wb_manual && ct_used > 0) {
+				awb_gains_for_ct(ct_used, &p.wb_r, &p.wb_b);
+				p.wb_g = 1.0f;
+				printf("wb from --ct %.0f K: gains R %.3f "
+				       "B %.3f\n",
+				       ct_used, p.wb_r, p.wb_b);
+			}
+			if (ct_used <= 0)
+				ct_used = 4600.0f; /* nothing measured/forced */
+			if (!no_ccm)
+				ccm_for_ct(ct_used, p.ccm);
+			if (use_alsc) {
+				float h_alsc[3 * ALSC_GRID * ALSC_GRID];
+				alsc_build(ct_used, h_alsc);
+				CUDA_CHECK(cudaMemcpy(d_alsc, h_alsc,
+						      sizeof(h_alsc),
+						      cudaMemcpyHostToDevice));
+				p.alsc_r = d_alsc;
+				p.alsc_b = d_alsc + ALSC_GRID * ALSC_GRID;
+				p.alsc_l = d_alsc + 2 * ALSC_GRID * ALSC_GRID;
+			}
+			printf("color: CT %.0f K, CCM %s, ALSC %s\n", ct_used,
+			       no_ccm ? "off" : "on", use_alsc ? "on" : "off");
 		}
 
 		const uint16_t *src;
@@ -559,6 +755,8 @@ int main(int argc, char **argv)
 	cap_close(&cap);
 	if (d_raw)
 		cudaFree(d_raw);
+	if (d_alsc)
+		cudaFree(d_alsc);
 	cudaFree(d_rgb);
 	free(h_rgb);
 	return 0;
