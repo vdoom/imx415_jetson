@@ -76,7 +76,48 @@ python3 gen_tuning.py   # only after changing reference/imx415-tuning-pisp.json
 - `--no-ccm` — identity CCM (raw WB'd color, e.g. to compare)
 - `--no-alsc` — disable lens-shading correction
 - `--linear` — skip gamma (linear RGB for ML preprocessing; CCM still applied)
+- `--loopback /dev/videoN` — re-export the processed stream (see below)
+- `--frames 0` — run until Ctrl-C (default when `--loopback` is given)
 - Only one process can own /dev/video0 — stop the MJPEG viewer first.
+
+## Loopback bridge — use the camera from any app
+
+`--loopback` turns the tool into a producer daemon: it owns /dev/video0,
+runs AE + the color pipeline, converts RGB→YUYV on the GPU (BT.601,
+host-verified kernel) and writes frames into a v4l2loopback device. Every
+V4L2 app then sees a normal 1932×1096@30 webcam named "IMX415" — this is
+the missing libcamera/nvargus layer for this sensor.
+
+One-time setup on the Jetson:
+
+```bash
+sudo apt install v4l2loopback-dkms   # builds against 5.15.185-tegra
+sudo modprobe v4l2loopback video_nr=10 card_label="IMX415" exclusive_caps=1
+# persist across reboots:
+echo v4l2loopback | sudo tee /etc/modules-load.d/v4l2loopback.conf
+echo 'options v4l2loopback video_nr=10 card_label="IMX415" exclusive_caps=1' \
+  | sudo tee /etc/modprobe.d/v4l2loopback.conf
+```
+
+Run the bridge, then consume from anything:
+
+```bash
+./imx415_debayer --ae --loopback /dev/video10 &
+
+ffplay /dev/video10                          # local display
+vlc v4l2:///dev/video10                      # local display
+gst-launch-1.0 v4l2src device=/dev/video10 ! xvimagesink
+python3 -c "import cv2; c=cv2.VideoCapture(10); ..."   # OpenCV
+# browser over LAN (same workflow as view_stream.py):
+sudo apt install ustreamer
+ustreamer -d /dev/video10 -s 0.0.0.0 -p 8080   # then http://<jetson>:8080/
+```
+
+Notes: `exclusive_caps=1` is required for Chrome/WebRTC to accept the
+device. The YUYV conversion adds one GPU kernel + a 4.2 MB host-visible
+write per frame (host-mapped pinned buffer, no separate DtoH copy). AWB
+locks once at startup; restart the bridge after drastic lighting-type
+changes (CT/CCM re-lock — AE keeps adapting continuously regardless).
 
 ## Integration point
 

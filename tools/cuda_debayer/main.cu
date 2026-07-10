@@ -27,6 +27,7 @@
 #include <fcntl.h>
 #include <unistd.h>
 #include <cerrno>
+#include <csignal>
 #include <cstdint>
 #include <cstdio>
 #include <cstdlib>
@@ -76,6 +77,14 @@ static int xioctl(int fd, unsigned long req, void *arg)
 		r = ioctl(fd, req, arg);
 	} while (r == -1 && errno == EINTR);
 	return r;
+}
+
+static volatile sig_atomic_t g_stop;
+
+static void on_stop(int sig)
+{
+	(void)sig;
+	g_stop = 1;
 }
 
 /* ------------------------------------------------------------------ */
@@ -176,6 +185,36 @@ __global__ void debayer_gbrg_half(const uint16_t *__restrict__ raw,
 /* ------------------------------------------------------------------ */
 /* V4L2 capture                                                        */
 /* ------------------------------------------------------------------ */
+
+/*
+ * RGB8 -> YUYV 4:2:2 (BT.601 limited range) for the v4l2loopback output.
+ * One thread per 2-pixel macropixel; chroma is the average of the pair.
+ */
+__global__ void rgb_to_yuyv(const uint8_t *__restrict__ rgb,
+			    uint8_t *__restrict__ yuyv, int w, int h)
+{
+	int mx = blockIdx.x * blockDim.x + threadIdx.x;
+	int y = blockIdx.y * blockDim.y + threadIdx.y;
+
+	if (mx >= w / 2 || y >= h)
+		return;
+	const uint8_t *p = rgb + ((size_t)y * w + 2 * mx) * 3;
+	float r0 = p[0], g0 = p[1], b0 = p[2];
+	float r1 = p[3], g1 = p[4], b1 = p[5];
+	float ra = 0.5f * (r0 + r1);
+	float ga = 0.5f * (g0 + g1);
+	float ba = 0.5f * (b0 + b1);
+	float y0 = 16.0f + 0.257f * r0 + 0.504f * g0 + 0.098f * b0;
+	float y1 = 16.0f + 0.257f * r1 + 0.504f * g1 + 0.098f * b1;
+	float u = 128.0f - 0.148f * ra - 0.291f * ga + 0.439f * ba;
+	float v = 128.0f + 0.439f * ra - 0.368f * ga - 0.071f * ba;
+	uint8_t *o = yuyv + ((size_t)y * (w / 2) + mx) * 4;
+
+	o[0] = (uint8_t)fminf(fmaxf(y0, 0.0f), 255.0f);
+	o[1] = (uint8_t)fminf(fmaxf(u, 0.0f), 255.0f);
+	o[2] = (uint8_t)fminf(fmaxf(y1, 0.0f), 255.0f);
+	o[3] = (uint8_t)fminf(fmaxf(v, 0.0f), 255.0f);
+}
 
 struct Capture {
 	int fd;
@@ -301,7 +340,10 @@ static int cap_dqbuf(Capture *c, struct v4l2_buffer *b)
 	struct timeval tv = { 5, 0 };
 	FD_ZERO(&fds);
 	FD_SET(c->fd, &fds);
-	if (select(c->fd + 1, &fds, NULL, NULL, &tv) <= 0) {
+	int r = select(c->fd + 1, &fds, NULL, NULL, &tv);
+	if (r < 0 && errno == EINTR)
+		return -1; /* interrupted (Ctrl-C) - caller stops cleanly */
+	if (r <= 0) {
 		fprintf(stderr, "capture timeout/error\n");
 		exit(1);
 	}
@@ -323,6 +365,37 @@ static void cap_close(Capture *c)
 		if (c->buf_start[i])
 			munmap(c->buf_start[i], c->buf_len[i]);
 	close(c->fd);
+}
+
+/*
+ * Open a v4l2loopback device for writing and set the output format.
+ * Consumers (ffplay, VLC, GStreamer, OpenCV, browsers) then read it
+ * like a regular webcam.
+ */
+static int loopback_open(const char *dev, int w, int h)
+{
+	int fd = open(dev, O_WRONLY);
+	if (fd < 0) {
+		perror(dev);
+		fprintf(stderr,
+			"is v4l2loopback loaded?  sudo modprobe v4l2loopback "
+			"video_nr=10 card_label=IMX415 exclusive_caps=1\n");
+		exit(1);
+	}
+	struct v4l2_format f = {};
+	f.type = V4L2_BUF_TYPE_VIDEO_OUTPUT;
+	f.fmt.pix.width = w;
+	f.fmt.pix.height = h;
+	f.fmt.pix.pixelformat = V4L2_PIX_FMT_YUYV;
+	f.fmt.pix.field = V4L2_FIELD_NONE;
+	f.fmt.pix.bytesperline = w * 2;
+	f.fmt.pix.sizeimage = (uint32_t)(w * h * 2);
+	f.fmt.pix.colorspace = V4L2_COLORSPACE_SMPTE170M;
+	if (xioctl(fd, VIDIOC_S_FMT, &f) < 0) {
+		perror("loopback VIDIOC_S_FMT");
+		exit(1);
+	}
+	return fd;
 }
 
 /* ------------------------------------------------------------------ */
@@ -591,7 +664,8 @@ int main(int argc, char **argv)
 {
 	const char *dev = "/dev/video0";
 	const char *snap_path = NULL;
-	int frames = 300;
+	const char *loopback_path = NULL;
+	int frames = 300, frames_given = 0;
 	int snap_at = 30;
 	int out_w = SENSOR_W / 2, out_h = SENSOR_H / 2; /* 1932x1096 */
 	int crop1080 = 0, awb = 1, linear = 0, bits = 10;
@@ -606,8 +680,11 @@ int main(int argc, char **argv)
 	for (int i = 1; i < argc; i++) {
 		if (!strcmp(argv[i], "--device") && i + 1 < argc)
 			dev = argv[++i];
-		else if (!strcmp(argv[i], "--frames") && i + 1 < argc)
+		else if (!strcmp(argv[i], "--frames") && i + 1 < argc) {
 			frames = atoi(argv[++i]);
+			frames_given = 1;
+		} else if (!strcmp(argv[i], "--loopback") && i + 1 < argc)
+			loopback_path = argv[++i];
 		else if (!strcmp(argv[i], "--snap") && i + 1 < argc)
 			snap_path = argv[++i];
 		else if (!strcmp(argv[i], "--snap-at") && i + 1 < argc)
@@ -645,7 +722,8 @@ int main(int argc, char **argv)
 			no_ccm = 1;
 		else {
 			fprintf(stderr,
-				"usage: %s [--device /dev/video0] [--frames N]\n"
+				"usage: %s [--device /dev/video0] [--frames N|0=forever]\n"
+				"  [--loopback /dev/videoN]  (processed YUYV out)\n"
 				"  [--snap out.ppm] [--snap-at N] [--bits 10|12]\n"
 				"  [--exposure US] [--gain MDB] [--crop1080]\n"
 				"  [--ae] [--ae-target F] [--ae-max-exp US]\n"
@@ -667,6 +745,8 @@ int main(int argc, char **argv)
 		if (gain_mdb < 0)
 			gain_mdb = 0;
 	}
+	if (loopback_path && !frames_given)
+		frames = 0; /* a bridge runs until Ctrl-C by default */
 
 	/*
 	 * VI MSB-aligns the N-bit sample in a 16-bit word, so the pixel is
@@ -737,8 +817,30 @@ int main(int argc, char **argv)
 					      sizeof(float)));
 	h_rgb = (uint8_t *)malloc((size_t)out_w * out_h * 3);
 
+	/* Loopback output: the YUYV buffer is host-mapped pinned memory, so
+	 * the conversion kernel writes CPU-visible bytes directly (Tegra
+	 * iGPU shares DRAM) and write() needs no separate DtoH copy. */
+	int lb_fd = -1, lb_warned = 0;
+	uint8_t *h_yuyv = NULL, *d_yuyv = NULL;
+	if (loopback_path) {
+		lb_fd = loopback_open(loopback_path, out_w, out_h);
+		CUDA_CHECK(cudaHostAlloc(&h_yuyv, (size_t)out_w * out_h * 2,
+					 cudaHostAllocMapped));
+		CUDA_CHECK(cudaHostGetDevicePointer((void **)&d_yuyv, h_yuyv,
+						    0));
+		printf("loopback: YUYV %dx%d -> %s%s\n", out_w, out_h,
+		       loopback_path, frames <= 0 ? " (until Ctrl-C)" : "");
+	}
+
+	struct sigaction sa = {};
+	sa.sa_handler = on_stop;
+	sigaction(SIGINT, &sa, NULL);
+	sigaction(SIGTERM, &sa, NULL);
+
 	dim3 blk(32, 8);
 	dim3 grd((out_w + blk.x - 1) / blk.x, (out_h + blk.y - 1) / blk.y);
+	dim3 cgrd((out_w / 2 + blk.x - 1) / blk.x,
+		  (out_h + blk.y - 1) / blk.y);
 	cudaEvent_t ev0, ev1;
 	CUDA_CHECK(cudaEventCreate(&ev0));
 	CUDA_CHECK(cudaEventCreate(&ev1));
@@ -746,8 +848,9 @@ int main(int argc, char **argv)
 	double t_start = 0;
 	float kern_ms_sum = 0;
 	double copy_s_sum = 0;
-	int color_at = frames > 8 ? 8 : frames - 1;
+	int color_at = (frames <= 0 || frames > 8) ? 8 : frames - 1;
 	int color_done = 0, awb_retries = 0;
+	int stat_every = frames > 0 ? 100 : 900; /* every 30 s when infinite */
 
 	struct AeState ae = {};
 	ae.enabled = ae_on;
@@ -761,9 +864,12 @@ int main(int argc, char **argv)
 		       "start\n",
 		       ae.target, (long long)ae.exp_us, (long long)ae.gain_mdb);
 
-	for (int i = 0; i < frames; i++) {
+	int i = 0;
+	for (; (frames <= 0 || i < frames) && !g_stop; i++) {
 		struct v4l2_buffer b;
 		int idx = cap_dqbuf(&cap, &b);
+		if (idx < 0)
+			break; /* interrupted */
 
 		if (i == 0)
 			t_start = now_s();
@@ -807,7 +913,7 @@ int main(int argc, char **argv)
 					       rm, bm, ct_est, p.wb_r,
 					       p.wb_b);
 				} else if (ae.enabled && awb_retries++ < 5 &&
-					   i + 30 < frames) {
+					   (frames <= 0 || i + 30 < frames)) {
 					/* AE is still brightening the scene */
 					color_at = i + 30;
 					color_done = 0;
@@ -873,7 +979,19 @@ int main(int argc, char **argv)
 		/*
 		 * d_rgb now holds the processed frame on the GPU.
 		 * >>> Integration point: hand d_rgb to your consumer here <<<
+		 * (the loopback writer below is one such consumer)
 		 */
+
+		if (lb_fd >= 0) {
+			rgb_to_yuyv<<<cgrd, blk>>>(d_rgb, d_yuyv, out_w,
+						   out_h);
+			CUDA_CHECK(cudaDeviceSynchronize());
+			ssize_t sz = (ssize_t)out_w * out_h * 2;
+			if (write(lb_fd, h_yuyv, sz) != sz && !lb_warned) {
+				perror("loopback write");
+				lb_warned = 1;
+			}
+		}
 
 		/* wait for the color pipeline too: with --ae in a dark scene,
 		 * AWB/CCM can lock frames after snap_at (dark-retry) */
@@ -890,7 +1008,7 @@ int main(int argc, char **argv)
 			exit(1);
 		}
 
-		if (i > 0 && i % 100 == 0) {
+		if (i > 0 && i % stat_every == 0) {
 			double el = now_s() - t_start;
 			printf("frame %4d  avg %.2f fps  copy %.2f ms  "
 			       "kernel %.3f ms\n",
@@ -899,16 +1017,22 @@ int main(int argc, char **argv)
 		}
 	}
 
-	double el = now_s() - t_start;
-	printf("done: %d frames in %.2f s = %.2f fps "
-	       "(copy %.2f ms, kernel %.3f ms per frame)\n",
-	       frames, el, (frames - 1) / el, 1e3 * copy_s_sum / frames,
-	       kern_ms_sum / frames);
+	if (i > 1) {
+		double el = now_s() - t_start;
+		printf("done: %d frames in %.2f s = %.2f fps "
+		       "(copy %.2f ms, kernel %.3f ms per frame)\n",
+		       i, el, (i - 1) / el, 1e3 * copy_s_sum / i,
+		       kern_ms_sum / i);
+	}
 
 	if (zero_copy)
-		for (int i = 0; i < NUM_BUFFERS; i++)
-			cudaHostUnregister(cap.buf_start[i]);
+		for (int j = 0; j < NUM_BUFFERS; j++)
+			cudaHostUnregister(cap.buf_start[j]);
 	cap_close(&cap);
+	if (lb_fd >= 0)
+		close(lb_fd);
+	if (h_yuyv)
+		cudaFreeHost(h_yuyv);
 	if (d_raw)
 		cudaFree(d_raw);
 	if (d_alsc)
