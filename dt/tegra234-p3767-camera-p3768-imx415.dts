@@ -20,6 +20,7 @@
 #define CAM_I2C_MUX 	TEGRA234_AON_GPIO(CC, 3)
 
 #include <dt-bindings/tegra234-p3767-0000-common.h>
+#include <dt-bindings/pinctrl/pinctrl-tegra.h>
 
 / {
 	overlay-name = "Camera IMX415-98";
@@ -245,6 +246,33 @@
 						gpios = < CAM1_PWDN 0  CAM0_PWDN 0>;
 						label = "cam1-pwdn", "cam0-pwdn";
 					};
+				};
+			};
+		};
+	};
+
+	/*
+	 * IR-CUT fix (validated on target 2026-07-11): CAM1 connector pin 18
+	 * (module FFC pin 5 "IR-CUT", the H-bridge direction input) is the
+	 * extperiph2_clk_pp1 pad. Stock pinmux = EXTPERIPH2 with the clock
+	 * gated, so the pad force-drove the line to 0 V = night mode and the
+	 * module's own day/night switch was overridden. Muxing to RSVD1 (=
+	 * GPIO mode) leaves the pad hi-Z while GPIO PP.01 (main gpio line 113)
+	 * is unclaimed - the physical switch works - and software selects the
+	 * mode by driving PP.01 (gpioset/libgpiod). No gpio-hog on purpose.
+	 */
+	fragment@1 {
+		target = <&pinmux>;
+		__overlay__ {
+			pinctrl-names = "default";
+			pinctrl-0 = <&imx415_ircut_state>;
+			imx415_ircut_state: imx415-ircut {
+				ircut-pin {
+					nvidia,pins = "extperiph2_clk_pp1";
+					nvidia,function = "rsvd1";
+					nvidia,pull = <TEGRA_PIN_PULL_NONE>;
+					nvidia,tristate = <TEGRA_PIN_DISABLE>;
+					nvidia,enable-input = <TEGRA_PIN_DISABLE>;
 				};
 			};
 		};

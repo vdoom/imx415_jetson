@@ -10,7 +10,7 @@ tree at `.../source/hardware/nvidia/t23x/nv-public/overlay/` (same .dts + one
   byte-level review (diff it against `../reference/imx219-C-donor-decompiled.dts`
   to see exactly what changed vs the stock donor).
 
-## Status: builds clean, diff-verified against donor. NOT yet booted on target.
+## Status: running on target since Phase G (2026-07-07); 4-lane since 2026-07-08; IR-CUT pinmux (dtbo sha1 5a6fa834) deployed & validated on target 2026-07-11.
 
 ## Deltas vs imx219-C donor (everything else donor-identical)
 
@@ -27,6 +27,7 @@ tree at `.../source/hardware/nvidia/t23x/nv-public/overlay/` (same .dts + one
 | `embedded_metadata_height` | **"1"** — the sensor sends 1 embedded-data line per frame; with "0" VI discards every frame (`corr_err ... err_data 16384`, = CHANSEL_EMBED_INFRINGE). Found 2026-07-07 during Phase G via the working FRAMOS IMX715 overlay (`../reference/fr_imx715-cam1-2lane-overlay-l4t-r36.4.4.dts`); RPi's RP1 receiver tolerates the line silently, Tegra VI does not |
 | kept as donor | reset-gpios PAC.00 active-high, serial_c, port-index 2, VI/NVCSI graph, both gpio hogs, 22pin jetson-header-name |
 | **4-lane upgrade (2026-07-08)** | bus-width 2→4, num_lanes "4", pix_clk_hz 356400000, max_framerate 30 fps, exp 59–33200 µs; CAM1 has 4 lanes wired (proof: FRAMOS cam1-4lane overlay), module routes 4 lanes (proof: RPi forum 4lane test); validated 2-lane state = git tag `phase1-2lane-15fps` + `deploy/2lane-15fps-backup/` |
+| **IR-CUT pinmux (2026-07-11)** | new `fragment@1` targeting `&pinmux`: `extperiph2_clk_pp1` (CAM1 pin 18 = module FFC "IR-CUT" line) → `rsvd1`/GPIO. Stock EXTPERIPH2 mux force-drove the line to 0 V = filter stuck at night. As GPIO the pad is hi-Z when unclaimed (physical switch works); PP.01 (main gpio line 113) drives day/night from software (`tools/ircut.sh`). Validated on target 2026-07-11 via runtime `pinmux-select` before baking in. See `phase_g_validation.md` |
 
 ## Deploy reminder (Phase F, from passport.md §2.1)
 

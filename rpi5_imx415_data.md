@@ -43,7 +43,7 @@ IR-CUT camera, to feed the Jetson Orin Nano port (Phase A of
 | **Driver build (pin)** | `srcversion D307833D7F402E825690CE0`, vermagic `6.12.47+rpt-rpi-2712` | `modinfo imx415` — the exact driver this HW was validated on |
 | **Reset / XCLR GPIO** | **none** in the RPi overlay (power sequenced by regulators only) | DT node has no `*-gpios`/reset/xclr property |
 | **Modes advertised** | exactly one: 3864×2192 (no crop/bin) | subdev `--list-subdev-framesizes` → single range → confirms guide §9.1 |
-| **IR-CUT polarity** | **NOT TESTED** (needs physical GPIO wiring) | see §6 |
+| **IR-CUT polarity** | **day (filter IN) = control HIGH, night = LOW** — closed 2026-07-11 on Jetson via the FFC line, no wiring needed | see §6 update; IR-remote verified on target |
 
 ---
 
@@ -233,24 +233,22 @@ media-ctl -p -d /dev/media0
 
 ---
 
-## 6. IR-CUT — NOT tested (needs your hands)
+## 6. IR-CUT — CLOSED 2026-07-11 (no wiring was needed)
 
-Guide §2.5 asks to record the IR-CUT switch polarity. This can't be done from
-software alone: the filter is driven by a pad on the Waveshare board that must
-be wired to a Pi GPIO and pulsed. To finish this item:
+The premise below ("must be wired to a Pi GPIO") turned out wrong: the spec
+drawing (`reference/IMX415-98-IR-CUT-Camera-Specification.pdf`) shows the
+control comes in over the FFC — module pin 5 "IR-CUT" (H-bridge direction),
+pin 6 "GPIO-H". On the Jetson P3768 CAM1 connector pin 5 lands on pin 18 =
+pad `extperiph2_clk_pp1` = GPIO PP.01, which the stock MCLK pinmux was
+force-driving to 0 V (= filter stuck at night, switch dead).
 
-1. Wire the board's IR-CUT control pad to a spare Pi GPIO (per Waveshare wiki).
-2. Toggle it and watch the color balance snap:
-   ```bash
-   sudo apt install -y gpiod
-   gpioinfo                       # pick chip/line for your pin
-   gpioset <chip> <line>=0        # observe filter state / color
-   gpioset <chip> <line>=1        # observe the other state
-   ```
-3. Record which logical level = IR-CUT filter **engaged** (daylight/color)
-   vs **removed** (IR/night). That level goes into guide §9.2 on the Jetson.
+**Result (validated on target):** pinmux the pad to `rsvd1`/GPIO (overlay
+fragment@1) → line hi-Z when unclaimed = physical switch works; drive PP.01
+to select the mode from software (`tools/ircut.sh`). **Polarity: day
+(filter IN) = HIGH, night (IR) = LOW.** Full story:
+`phase_g_validation.md`, "IR-CUT control line found on the FFC".
 
-Everything else in Phase A is complete.
+Everything else in Phase A was already complete — Phase A is now fully closed.
 
 ---
 
@@ -264,7 +262,7 @@ Everything else in Phase A is complete.
 | Розміри кадру reference-драйвера | **3864×2192**, single mode, **15 fps** |
 | link_freq для INCK 37.125 | **445.5 МГц** |
 | pix_clk_hz (розрахунок) | **178 200 000** (line_length 5280, 15 fps) |
-| Полярність IR-CUT | *pending — §6* |
+| Полярність IR-CUT | **день = HIGH, ніч = LOW** (закрито 2026-07-11 на Jetson через FFC/PP.01 — §6) |
 
 Jetson-side rows (L4T version, CAM port, I2C bus on Jetson, donor overlay,
 tegra_sinterface, fourcc on VI) are filled during Phases B–G on the devkit.

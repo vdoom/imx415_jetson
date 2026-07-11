@@ -19,7 +19,7 @@
 
 					port@1 {
 						reg = <0x00>;
-						phandle = <0x05>;
+						phandle = <0x06>;
 
 						endpoint {
 							port-index = <0x02>;
@@ -40,12 +40,12 @@
 						badge = "jakku_rear_IMX415";
 						position = "rear";
 						orientation = "1";
-						phandle = <0x06>;
+						phandle = <0x07>;
 
 						drivernode0 {
 							pcl_id = "v4l2_sensor";
 							sysfs-device-tree = "/sys/firmware/devicetree/base/bus@0/cam_i2cmux/i2c@1/rbpcv415_c@37";
-							phandle = <0x07>;
+							phandle = <0x08>;
 						};
 					};
 				};
@@ -62,7 +62,7 @@
 
 						channel@1 {
 							reg = <0x00>;
-							phandle = <0x08>;
+							phandle = <0x09>;
 
 							ports {
 								#address-cells = <0x01>;
@@ -70,7 +70,7 @@
 
 								port@0 {
 									reg = <0x00>;
-									phandle = <0x09>;
+									phandle = <0x0a>;
 
 									endpoint@2 {
 										port-index = <0x02>;
@@ -82,7 +82,7 @@
 
 								port@1 {
 									reg = <0x01>;
-									phandle = <0x0a>;
+									phandle = <0x0b>;
 
 									endpoint@3 {
 										remote-endpoint = <0x03>;
@@ -237,6 +237,27 @@
 		};
 	};
 
+	fragment@1 {
+		target = <0xffffffff>;
+
+		__overlay__ {
+			pinctrl-names = "default";
+			pinctrl-0 = <0x05>;
+
+			imx415-ircut {
+				phandle = <0x05>;
+
+				ircut-pin {
+					nvidia,pins = "extperiph2_clk_pp1";
+					nvidia,function = "rsvd1";
+					nvidia,pull = <0x00>;
+					nvidia,tristate = <0x00>;
+					nvidia,enable-input = <0x00>;
+				};
+			};
+		};
+	};
+
 	__symbols__ {
 		vi_port1 = "/fragment@0/__overlay__/tegra-capture-vi/ports/port@1";
 		rbpcv415_imx415_vi_in1 = "/fragment@0/__overlay__/tegra-capture-vi/ports/port@1/endpoint";
@@ -248,12 +269,14 @@
 		csi_chan1_port1 = "/fragment@0/__overlay__/bus@0/host1x@13e00000/nvcsi@15a00000/channel@1/ports/port@1";
 		rbpcv415_imx415_csi_out1 = "/fragment@0/__overlay__/bus@0/host1x@13e00000/nvcsi@15a00000/channel@1/ports/port@1/endpoint@3";
 		rbpcv415_imx415_out1 = "/fragment@0/__overlay__/bus@0/cam_i2cmux/i2c@1/rbpcv415_c@37/ports/port@0/endpoint";
+		imx415_ircut_state = "/fragment@1/__overlay__/imx415-ircut";
 	};
 
 	__fixups__ {
 		gpio_aon = "/fragment@0/__overlay__/bus@0/cam_i2cmux:mux-gpios:0";
 		cam_i2c = "/fragment@0/__overlay__/bus@0/cam_i2cmux:i2c-parent:0";
 		gpio = "/fragment@0/__overlay__/bus@0/cam_i2cmux/i2c@1/rbpcv415_c@37:reset-gpios:0";
+		pinmux = "/fragment@1:target:0";
 	};
 
 	__local_fixups__ {
@@ -322,6 +345,13 @@
 						};
 					};
 				};
+			};
+		};
+
+		fragment@1 {
+
+			__overlay__ {
+				pinctrl-0 = <0x00>;
 			};
 		};
 	};

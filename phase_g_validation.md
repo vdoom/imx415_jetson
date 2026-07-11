@@ -137,6 +137,75 @@ assume IR-blocked light).
 - Tier 2 (software day/night): dual H-bridge breakout (DRV8833/L9110S) between
   two 40-pin GPIOs and the coil → `gpioset`-controlled polarity.
 
+## IR-CUT control line found on the FFC — spec PDF pinout (2026-07-11, VALIDATED)
+
+`reference/IMX415-98-IR-CUT-Camera-Specification.pdf` (Waveshare drawing)
+lists the module's 22-pin FFC pinout, and it includes **pin 5 = IR-CUT** and
+**pin 6 = GPIO-H** — the bridge control comes over the ribbon, no wire mod
+needed. The module numbering is the mirror of the host connector numbering
+(module pin n ↔ host pin 23−n; verified across all 22 pins: 3V3/SDA/SCL,
+clock pair MCP/MCN ↔ host 9/8, all four data pairs including P/N polarity).
+On the P3768 CAM1 connector this lands as:
+
+| Module pin (PDF) | P3768 CAM1 pin | Tegra net | State today |
+|---|---|---|---|
+| 6 GPIO-H | 17 CAM1_PWDN | PAC.00 | our DT `reset-gpios`, high while streaming |
+| 5 IR-CUT | 18 CAM1_MCLK | `extperiph2_clk_pp1` = **PP.01** | pinmux = extperiph2, clock gated → **pad actively drives 0 V, always** |
+
+This explains every 2026-07-10 observation at once:
+- filter stuck at night on Jetson: IR-CUT line is force-driven low by the
+  gated MCLK output (tristate disabled in the p3767 pinmux BCT);
+- the switch clicks on RPi5 but never on Jetson: the Pi drives its CAM_GPIO
+  connector line, Tegra never does;
+- holding external 3.3 V on the GP0 pad did nothing: GP0 is (weakly coupled
+  to) this net, and the Tegra push-pull pad was fighting it low the whole
+  time — the injection never actually raised the net.
+
+**Test (target, no reboot, reversible).** First restore the coil to the
+module's 2-pin connector (undo the Tier-1 header feed), then:
+
+```bash
+# 1. detach the pad from the gated clock: mux extperiph2_clk_pp1 to a RSVD
+#    function (= GPIO mode on t234; any of rsvd1/2/3 works)
+sudo sh -c 'echo "extperiph2_clk_pp1 rsvd1" > /sys/kernel/debug/pinctrl/2430000.pinmux/pinmux-select'
+# 2. drive it — PP.01 = main-gpio line 113 (14*8+1); --mode=wait keeps the
+#    line claimed until Enter
+gpioinfo | grep -n "PP.01"                  # confirm chip/line, unclaimed
+sudo gpioset --mode=wait $(gpiofind PP.01)=1   # listen for the click
+sudo gpioset --mode=wait $(gpiofind PP.01)=0   # and back
+```
+
+Do this while streaming (GPIO-H/PAC.00 is only held high by the driver then)
+and try both physical switch positions; confirm with the IR-remote test.
+Record which level = day (filter IN) — that closes the last Phase A passport
+row (`rpi5_imx415_data.md` §6). Re-probe GP0 while toggling: if it follows
+PP.01 it is this net, giving a scope point.
+
+**VALIDATED on target 2026-07-11 (user):** the pinmux-select command alone
+re-enabled the physical switch (pad hi-Z once detached from the gated clock
+→ the module's own switch network regains the line), and `gpioset` on PP.01
+switches modes from software. Exactly as predicted.
+
+**Persistence (done on host 2026-07-11):** the debugfs poke does NOT survive
+reboot, so the pinmux is now baked into the camera overlay as `fragment@1`
+(`dt/tegra234-p3767-camera-p3768-imx415.dts`): `extperiph2_clk_pp1` →
+`rsvd1`, pull none, tristate disable, input disable, applied as a pinctrl
+hog at pinmux probe. **No gpio-hog on purpose** — unclaimed the pad is hi-Z
+so the physical switch works; software overrides by claiming PP.01.
+Rebuilt dtbo in `deploy/` (sha1 `5a6fa834`, ko unchanged `19169df3`);
+install = copy dtbo over `/boot/tegra234-p3767-camera-p3768-imx415.dtbo`
++ reboot (extlinux entry already points at it; use a FRESH dated scp dir —
+see stale-deploy trap). Runtime helper: `tools/ircut.sh day|night|auto|
+status` (background gpioset holds the level; `auto` releases to the
+switch).
+
+**DEPLOYED & VALIDATED on target 2026-07-11 (user: "works fine")** — dtbo
+installed, pinmux hog applies at boot, physical switch and `ircut.sh`
+day/night both work with no manual pinmux poke. IR-CUT is DONE on Jetson.
+**Polarity confirmed: day (filter IN) = PP.01 HIGH, night (IR) = LOW**
+(`LEVEL_DAY=1` as shipped) — recorded in `passport.md` and
+`rpi5_imx415_data.md` §6/§7; last open Phase A row closed.
+
 ## Sensor controls silently ignored without override_enable=1 — measured (2026-07-10)
 
 Symptom while validating day-mode color: exposure sweep 59→33000 µs and gain
@@ -195,8 +264,9 @@ estimation (CCM/ALSC selection). See tools/cuda_debayer/README.md.
 
 ## Remaining / next (Phase H)
 
-1. IR-CUT wire mod (§9.2): identify control pad from PCB photos, wire to
-   40-pin GPIO, then day/night from software (see investigation above).
+1. ~~IR-CUT~~ **DONE 2026-07-11** — FFC pin 18 / PP.01, pinmux fragment@1 in
+   the overlay + `tools/ircut.sh`; deployed and validated on target (see
+   "IR-CUT control line found on the FFC" above).
 2. Phase H options: CUDA debayer + GPU crop/scale to 1080p (recommended first),
    4-lane rework for 30 fps (verify Waveshare PCB routes lanes 3/4 and CAM1 on
    p3768 has 4 lanes wired), sensor-side binned 1080p (donor tables in
