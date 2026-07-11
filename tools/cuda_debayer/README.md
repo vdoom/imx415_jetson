@@ -27,9 +27,10 @@ the sensor/link layer, not the sensor registers (byte-for-byte upstream) —
 diagnose with `tools/zigzag_check.sh` (HMAX-margin test) and by reseating
 the FFC cable. Until a hardware-level fix is found, the tool measures the
 slip at startup from scene texture (retries if too flat) and reads every
-sensor row at its compensated x in the kernel — validated on the captured
-artifact frame: fringes gone, box text legible again. Raw `/dev/video0`
-consumers other than this tool still see the slip.
+sensor row at its compensated x in the kernel — **VALIDATED on target
+2026-07-11**: fringes gone in the live stream, sharpness visibly restored
+(and on the archived artifact frame, smeared box text became legible).
+Raw `/dev/video0` consumers other than this tool still see the slip.
 
 All color calibration data comes from Raspberry Pi's factory tuning file for
 this exact sensor (`libcamera .../pisp/data/imx415.json`): the CCM table, the
