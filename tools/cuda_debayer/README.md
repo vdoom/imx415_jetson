@@ -15,6 +15,22 @@ step) → white balance → **ALSC lens-shading correction** → highlight clamp
 The lens's own lateral CA is *not* corrected (the RPi tuning file's `rpi.cac`
 block is empty for this module — no factory calibration exists).
 
+## ⚠ 4-lane link row slip — auto-compensated (`--no-dezigzag` disables)
+
+The 4-lane/891M link delivers frames with a deterministic transport defect:
+2-row blocks alternately displaced ±8 sensor px horizontally (period 4 rows,
+pattern `+8 −8 −8 +8` by `row & 3`), measured directly on raw CFA planes —
+present in every frame, absent in the archived 2-lane capture. Visible as
+green/purple fringes on every edge plus fake "soft focus" (the ±8 px comb
+averages into horizontal blur; fine text is unreadable). Root cause is in
+the sensor/link layer, not the sensor registers (byte-for-byte upstream) —
+diagnose with `tools/zigzag_check.sh` (HMAX-margin test) and by reseating
+the FFC cable. Until a hardware-level fix is found, the tool measures the
+slip at startup from scene texture (retries if too flat) and reads every
+sensor row at its compensated x in the kernel — validated on the captured
+artifact frame: fringes gone, box text legible again. Raw `/dev/video0`
+consumers other than this tool still see the slip.
+
 All color calibration data comes from Raspberry Pi's factory tuning file for
 this exact sensor (`libcamera .../pisp/data/imx415.json`): the CCM table, the
 AWB CT curve, and the 32×32 ALSC shading grids. `tuning_data.h` is generated

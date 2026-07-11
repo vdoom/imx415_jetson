@@ -99,10 +99,31 @@ struct ProcParams {
 	float ccm[9];    /* row-major color matrix (identity to disable) */
 	float inv_gamma; /* 1/2.2, or 1.0 for linear output */
 	int ox, oy;      /* crop offset in output (half-res) coordinates */
+	/*
+	 * Per-sensor-row horizontal compensation, indexed by row & 3.
+	 * The 4-lane/891M link delivers rows with a deterministic
+	 * alternating ~16 px horizontal slip (2-row blocks, period 4;
+	 * measured on raw CFA planes - see zigzag_check). Values are
+	 * EVEN pixel counts (CFA phase preserved), measured at startup;
+	 * all zero when the link is clean.
+	 */
+	int rowshift[4];
 	/* ALSC gain grids (ALSC_GRID^2, device memory), NULL = disabled;
 	 * alsc_l is pre-baked with the luminance strength on the host */
 	const float *alsc_r, *alsc_b, *alsc_l;
 };
+
+/* Row-shifted x with border clamp; shift is even so CFA phase holds. */
+__device__ static inline int shifted_x(int sx, int shift)
+{
+	int v = sx + shift;
+
+	if (v < 2)
+		v = 2;
+	if (v > SENSOR_W - 4)
+		v = SENSOR_W - 4;
+	return v;
+}
 
 /* Bilinear sample of a 32x32 ALSC grid at full-res pixel coords (fx, fy). */
 __device__ static float alsc_sample(const float *tab, float fx, float fy)
@@ -135,11 +156,25 @@ __global__ void debayer_gbrg_half(const uint16_t *__restrict__ raw,
 	const uint16_t *r0 = raw + (size_t)sy * raw_pitch16;
 	const uint16_t *r1 = r0 + raw_pitch16;
 
+	/*
+	 * Every sensor row is read at its own compensated x (p.rowshift,
+	 * all even): undoes the 4-lane link's alternating ~16 px row slip
+	 * before any demosaic math sees the data. All zero on a clean link.
+	 */
+	int yn = sy >= 1 ? sy - 1 : sy + 1;		   /* R row north */
+	int ys = sy + 2 <= SENSOR_H - 2 ? sy + 2 : sy;	   /* B row south */
+	int x0 = shifted_x(sx, p.rowshift[sy & 3]);	   /* G1/B row */
+	int x1 = shifted_x(sx, p.rowshift[(sy + 1) & 3]);  /* R/G2 row */
+	int xn = shifted_x(sx, p.rowshift[yn & 3]);
+	int xs2 = shifted_x(sx, p.rowshift[ys & 3]);
+	const uint16_t *rn = raw + (size_t)yn * raw_pitch16;
+	const uint16_t *rs = raw + (size_t)ys * raw_pitch16;
+
 	/* GBRG quad: (0,0)=G1 (0,1)=B (1,0)=R (1,1)=G2; VI MSB-aligns the
 	 * N-bit sample in 16 bits, so the pixel value is raw16 >> shift. */
 	int s = p.shift;
-	float g1 = (float)(r0[sx] >> s) - p.black;
-	float g2 = (float)(r1[sx + 1] >> s) - p.black;
+	float g1 = (float)(r0[x0] >> s) - p.black;
+	float g2 = (float)(r1[x1 + 1] >> s) - p.black;
 
 	/*
 	 * The two G samples average to the quad center, but B sits at
@@ -151,21 +186,14 @@ __global__ void debayer_gbrg_half(const uint16_t *__restrict__ raw,
 	 * (weights 9/3/3/1 over 16): fringing on smooth (lens-blurred)
 	 * edges cancels, hard-step worst case halves.
 	 */
-	int xw = sx >= 1 ? sx - 1 : sx + 1;		 /* B col to the west */
-	int xe = sx + 2 <= SENSOR_W - 2 ? sx + 2 : sx;	 /* R col to the east */
-	const uint16_t *rn = raw +
-		(size_t)(sy >= 1 ? sy - 1 : sy + 1) * raw_pitch16; /* R north */
-	const uint16_t *rs = raw +
-		(size_t)(sy + 2 <= SENSOR_H - 2 ? sy + 2 : sy) *
-			raw_pitch16;				   /* B south */
-	float b = 0.5625f * (float)(r0[sx + 1] >> s) +
-		  0.1875f * (float)(r0[xw] >> s) +
-		  0.1875f * (float)(rs[sx + 1] >> s) +
-		  0.0625f * (float)(rs[xw] >> s) - p.black;
-	float r = 0.5625f * (float)(r1[sx] >> s) +
-		  0.1875f * (float)(r1[xe] >> s) +
-		  0.1875f * (float)(rn[sx] >> s) +
-		  0.0625f * (float)(rn[xe] >> s) - p.black;
+	float b = 0.5625f * (float)(r0[x0 + 1] >> s) +
+		  0.1875f * (float)(r0[x0 - 1] >> s) +
+		  0.1875f * (float)(rs[xs2 + 1] >> s) +
+		  0.0625f * (float)(rs[xs2 - 1] >> s) - p.black;
+	float r = 0.5625f * (float)(r1[x1] >> s) +
+		  0.1875f * (float)(r1[x1 + 2] >> s) +
+		  0.1875f * (float)(rn[xn] >> s) +
+		  0.0625f * (float)(rn[xn + 2] >> s) - p.black;
 
 	float R = fmaxf(r, 0.0f) * p.scale * p.wb_r;
 	float G = fmaxf(0.5f * (g1 + g2), 0.0f) * p.scale * p.wb_g;
@@ -525,6 +553,96 @@ static void measure_luma(const uint16_t *raw, int pitch16, int shift,
 	*sat = n ? (float)nsat / n : 0.0f;
 }
 
+/*
+ * Detect the 4-lane link's alternating row slip from one raw frame.
+ * Within each CFA subplane (G1 = even rows, G2 = odd rows), rows two
+ * sensor-rows apart image the same scene content - any consistent
+ * horizontal offset between them is transport slip, not scene. Fills
+ * out[4] with even per-(sensor_row & 3) compensation offsets.
+ * Returns 1 if measured (offsets may be all zero = clean link),
+ * 0 if the frame lacks texture to measure.
+ */
+#define SLIP_COLS 1200 /* contiguous plane samples per row */
+#define SLIP_MAX 12    /* max plane-sample shift = 24 sensor px */
+
+static int slip_pair_shift(const uint16_t *raw, int pitch16, int s,
+			   int row_a, int row_b)
+{
+	static float a[SLIP_COLS], b[SLIP_COLS];
+	const uint16_t *pa = raw + (size_t)row_a * pitch16;
+	const uint16_t *pb = raw + (size_t)row_b * pitch16;
+	float ma = 0, mb = 0;
+
+	for (int i = 0; i < SLIP_COLS; i++) {
+		a[i] = (float)(pa[2 * (300 + i)] >> s);
+		b[i] = (float)(pb[2 * (300 + i)] >> s);
+		ma += a[i];
+		mb += b[i];
+	}
+	ma /= SLIP_COLS;
+	mb /= SLIP_COLS;
+	float va = 0;
+	for (int i = 0; i < SLIP_COLS; i++)
+		va += (a[i] - ma) * (a[i] - ma);
+	if (va / SLIP_COLS < 25.0f)
+		return 999; /* featureless row */
+
+	float best = 1e30f;
+	int bestk = 999;
+	for (int k = -SLIP_MAX; k <= SLIP_MAX; k++) {
+		float sad = 0;
+		for (int i = SLIP_MAX; i < SLIP_COLS - SLIP_MAX; i += 2)
+			sad += fabsf(a[i] - b[i + k]);
+		if (sad < best) {
+			best = sad;
+			bestk = k;
+		}
+	}
+	return bestk; /* plane samples; *2 = sensor px */
+}
+
+static int cmp_int(const void *a, const void *b)
+{
+	return *(const int *)a - *(const int *)b;
+}
+
+static int measure_rowslip(const uint16_t *raw, int pitch16, int s,
+			   int out[4])
+{
+	/* delta[phase]: shift between rows (phase, phase+2), phase = 0..1 */
+	for (int g = 0; g < 4; g++)
+		out[g] = 0;
+	int measured = 0;
+
+	for (int phase = 0; phase < 2; phase++) {
+		int v[64], n = 0;
+		for (int sy = 200 + phase; sy < 2000 && n < 64; sy += 44) {
+			int k = slip_pair_shift(raw, pitch16, s, sy, sy + 2);
+			if (k == 999)
+				continue;
+			/* pairs starting at (sy & 3) >= 2 measure -delta */
+			v[n++] = ((sy & 3) < 2) ? k : -k;
+		}
+		if (n < 12)
+			return 0; /* not enough texture */
+		qsort(v, n, sizeof(int), cmp_int);
+		int med = v[n / 2];              /* plane samples */
+		int spread = v[3 * n / 4] - v[n / 4];
+		if (spread > 2)
+			return 0; /* inconsistent - don't compensate */
+		/*
+		 * med plane-samples == half the relative slip in sensor px.
+		 * Split it symmetrically between the two row phases and
+		 * round to even so the CFA column phase is preserved.
+		 */
+		int e = (med >= 0) ? ((med + 1) & ~1) : -(((-med) + 1) & ~1);
+		out[phase] = -e;
+		out[phase + 2] = e;
+		measured = 1;
+	}
+	return measured;
+}
+
 struct AeState {
 	int enabled;
 	float target;      /* linear mean target, 0..1 */
@@ -696,6 +814,7 @@ int main(int argc, char **argv)
 	int use_alsc = 1, no_ccm = 0, wb_manual = 0;
 	int64_t exposure_us = -1, gain_mdb = -1; /* <0 = keep cached value */
 	int ae_on = 0;
+	int dezigzag = 1;
 	float ae_target = 0.10f; /* linear mean; ~0.35 after gamma 2.2 */
 	int64_t ae_exp_max = 33000; /* stays within the 30 fps frame */
 	float wb_r = 1.0f, wb_g = 1.0f, wb_b = 1.0f;
@@ -721,6 +840,8 @@ int main(int argc, char **argv)
 			gain_mdb = atoll(argv[++i]);
 		else if (!strcmp(argv[i], "--ae"))
 			ae_on = 1;
+		else if (!strcmp(argv[i], "--no-dezigzag"))
+			dezigzag = 0;
 		else if (!strcmp(argv[i], "--ae-target") && i + 1 < argc)
 			ae_target = atof(argv[++i]);
 		else if (!strcmp(argv[i], "--ae-max-exp") && i + 1 < argc)
@@ -875,6 +996,7 @@ int main(int argc, char **argv)
 	int color_at = (frames <= 0 || frames > 8) ? 8 : frames - 1;
 	int color_done = 0, awb_retries = 0;
 	int stat_every = frames > 0 ? 100 : 900; /* every 30 s when infinite */
+	int dezig_at = 5, dezig_done = !dezigzag, dezig_tries = 0;
 
 	struct AeState ae = {};
 	ae.enabled = ae_on;
@@ -897,6 +1019,35 @@ int main(int argc, char **argv)
 
 		if (i == 0)
 			t_start = now_s();
+
+		/*
+		 * Measure the 4-lane link row slip once, from a real frame
+		 * (needs scene texture - retries a few times if too flat).
+		 * Compensation applies to every frame from then on.
+		 */
+		if (!dezig_done && i >= dezig_at) {
+			int rs4[4];
+			if (measure_rowslip((const uint16_t *)cap.buf_start[idx],
+					    pitch16, p.shift, rs4)) {
+				memcpy(p.rowshift, rs4, sizeof(rs4));
+				dezig_done = 1;
+				if (rs4[0] | rs4[1] | rs4[2] | rs4[3])
+					printf("dezigzag: link row slip "
+					       "compensated: %+d %+d %+d %+d "
+					       "sensor px (row&3)\n",
+					       rs4[0], rs4[1], rs4[2], rs4[3]);
+				else
+					printf("dezigzag: link clean, no "
+					       "compensation needed\n");
+			} else if (++dezig_tries >= 6) {
+				dezig_done = 1;
+				fprintf(stderr, "dezigzag: scene too flat to "
+						"measure, running without "
+						"compensation\n");
+			} else {
+				dezig_at = i + 15;
+			}
+		}
 
 		if (ae.enabled) {
 			if (ae.settle > 0) {
