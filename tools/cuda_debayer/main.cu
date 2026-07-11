@@ -664,6 +664,47 @@ static int measure_rowslip(const uint16_t *raw, int pitch16, int s,
 	return 1;
 }
 
+/*
+ * The slip staircase is a property of the link/boot, not the scene, so
+ * cache the last good measurement: a bridge started against a blank
+ * wall compensates from the cache immediately and re-measures (and
+ * refreshes the cache) as soon as the view has texture.
+ */
+static const char *rowslip_cache_path(void)
+{
+	static char path[512];
+	const char *h = getenv("HOME");
+
+	snprintf(path, sizeof(path), "%s/.imx415_rowslip", h ? h : "/tmp");
+	return path;
+}
+
+static int rowslip_cache_load(int out[4])
+{
+	FILE *f = fopen(rowslip_cache_path(), "r");
+
+	if (!f)
+		return 0;
+	int n = fscanf(f, "%d %d %d %d", &out[0], &out[1], &out[2], &out[3]);
+	fclose(f);
+	if (n != 4)
+		return 0;
+	for (int i = 0; i < 4; i++)
+		if (out[i] % 2 || abs(out[i]) > 2 * SLIP_MAX)
+			return 0;
+	return 1;
+}
+
+static void rowslip_cache_store(const int rs[4])
+{
+	FILE *f = fopen(rowslip_cache_path(), "w");
+
+	if (!f)
+		return;
+	fprintf(f, "%d %d %d %d\n", rs[0], rs[1], rs[2], rs[3]);
+	fclose(f);
+}
+
 struct AeState {
 	int enabled;
 	float target;      /* linear mean target, 0..1 */
@@ -1018,6 +1059,15 @@ int main(int argc, char **argv)
 	int color_done = 0, awb_retries = 0;
 	int stat_every = frames > 0 ? 100 : 900; /* every 30 s when infinite */
 	int dezig_at = 5, dezig_done = !dezigzag, dezig_tries = 0;
+	if (dezigzag) {
+		int cached[4];
+		if (rowslip_cache_load(cached)) {
+			memcpy(p.rowshift, cached, sizeof(cached));
+			printf("dezigzag: cached compensation %+d %+d %+d %+d "
+			       "(re-measures from live scene)\n",
+			       cached[0], cached[1], cached[2], cached[3]);
+		}
+	}
 
 	struct AeState ae = {};
 	ae.enabled = ae_on;
@@ -1051,6 +1101,7 @@ int main(int argc, char **argv)
 			if (measure_rowslip((const uint16_t *)cap.buf_start[idx],
 					    pitch16, p.shift, rs4)) {
 				memcpy(p.rowshift, rs4, sizeof(rs4));
+				rowslip_cache_store(rs4);
 				dezig_done = 1;
 				if (rs4[0] | rs4[1] | rs4[2] | rs4[3])
 					printf("dezigzag: link row slip "
@@ -1060,13 +1111,19 @@ int main(int argc, char **argv)
 				else
 					printf("dezigzag: link clean, no "
 					       "compensation needed\n");
-			} else if (++dezig_tries >= 6) {
-				dezig_done = 1;
-				fprintf(stderr, "dezigzag: scene too flat to "
-						"measure, running without "
-						"compensation\n");
 			} else {
-				dezig_at = i + 15;
+				/* keep trying forever - texture may appear;
+				 * cached/zero compensation carries meanwhile */
+				if (++dezig_tries == 6)
+					fprintf(stderr,
+						"dezigzag: scene too flat to "
+						"measure so far - %s; will "
+						"keep retrying\n",
+						(p.rowshift[0] | p.rowshift[1] |
+						 p.rowshift[2] | p.rowshift[3])
+							? "using cached values"
+							: "uncompensated");
+				dezig_at = i + (dezig_tries < 6 ? 15 : 60);
 			}
 		}
 

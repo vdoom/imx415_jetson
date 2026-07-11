@@ -36,6 +36,10 @@ v1's symmetric ±8 assumption left an inter-row-group offset that showed as
 a uniform purple/green horizontal split. **VALIDATED on target 2026-07-11**
 (v1): fringes gone in the live stream, sharpness visibly restored (smeared
 box text became legible); v2 (staircase) removes the residual color split.
+The measurement needs scene texture: the last good result is cached in
+`~/.imx415_rowslip` and applied immediately at startup (a bridge started
+against a blank wall stays compensated), with background re-measurement
+retrying until the view has enough detail.
 Raw `/dev/video0` consumers other than this tool still see the slip.
 
 All color calibration data comes from Raspberry Pi's factory tuning file for
