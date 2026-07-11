@@ -554,93 +554,114 @@ static void measure_luma(const uint16_t *raw, int pitch16, int shift,
 }
 
 /*
- * Detect the 4-lane link's alternating row slip from one raw frame.
- * Within each CFA subplane (G1 = even rows, G2 = odd rows), rows two
- * sensor-rows apart image the same scene content - any consistent
- * horizontal offset between them is transport slip, not scene. Fills
- * out[4] with even per-(sensor_row & 3) compensation offsets.
- * Returns 1 if measured (offsets may be all zero = clean link),
- * 0 if the frame lacks texture to measure.
+ * Detect the 4-lane link's row slip staircase from one raw frame.
+ * The link displaces each sensor row horizontally by d[row & 3] (a
+ * per-4-row staircase, ~ +12 -12 -4 +4 px measured on this unit).
+ * Adjacent rows image nearly the same scene, so the per-boundary
+ * offset d[ph+1]-d[ph] is measurable by sub-pixel SAD alignment of
+ * their bright-channel (G) samples: G sits at column parity (row & 1),
+ * and for content displaced by D the SAD minimum over plane-sample
+ * shifts k satisfies  D_b - D_a = (parb - para) - 2k  (sensor px) -
+ * sign/baseline validated against synthetic ground truth. Chaining the
+ * four boundary medians (with a closure check: they must sum to ~0)
+ * gives the absolute staircase up to a harmless global shift.
+ * Fills out[4] with even compensation offsets (CFA phase preserved);
+ * returns 1 if measured (may be all zero = clean link), 0 if the
+ * frame lacks texture or the measurement is inconsistent.
  */
-#define SLIP_COLS 1200 /* contiguous plane samples per row */
-#define SLIP_MAX 12    /* max plane-sample shift = 24 sensor px */
+#define SLIP_COLS 1150 /* plane samples per row (from sensor col 600) */
+#define SLIP_MAX 16    /* max plane-sample shift = 32 sensor px */
 
-static int slip_pair_shift(const uint16_t *raw, int pitch16, int s,
-			   int row_a, int row_b)
+static float slip_adjacent(const uint16_t *raw, int pitch16, int s,
+			   int row)
 {
 	static float a[SLIP_COLS], b[SLIP_COLS];
-	const uint16_t *pa = raw + (size_t)row_a * pitch16;
-	const uint16_t *pb = raw + (size_t)row_b * pitch16;
+	int para = row & 1, parb = (row + 1) & 1;
+	const uint16_t *pa = raw + (size_t)row * pitch16;
+	const uint16_t *pb = pa + pitch16;
 	float ma = 0, mb = 0;
 
 	for (int i = 0; i < SLIP_COLS; i++) {
-		a[i] = (float)(pa[2 * (300 + i)] >> s);
-		b[i] = (float)(pb[2 * (300 + i)] >> s);
+		a[i] = (float)(pa[600 + para + 2 * i] >> s);
+		b[i] = (float)(pb[600 + parb + 2 * i] >> s);
 		ma += a[i];
 		mb += b[i];
 	}
 	ma /= SLIP_COLS;
 	mb /= SLIP_COLS;
-	float va = 0;
-	for (int i = 0; i < SLIP_COLS; i++)
-		va += (a[i] - ma) * (a[i] - ma);
-	if (va / SLIP_COLS < 25.0f)
-		return 999; /* featureless row */
+	float va = 0, vb = 0;
+	for (int i = 0; i < SLIP_COLS; i++) {
+		a[i] -= ma;
+		b[i] -= mb;
+		va += a[i] * a[i];
+		vb += b[i] * b[i];
+	}
+	if (va < 16.0f * SLIP_COLS || vb < 16.0f * SLIP_COLS)
+		return 1e9f; /* featureless */
 
+	float sad[2 * SLIP_MAX + 1];
+	int besti = -1;
 	float best = 1e30f;
-	int bestk = 999;
 	for (int k = -SLIP_MAX; k <= SLIP_MAX; k++) {
-		float sad = 0;
-		for (int i = SLIP_MAX; i < SLIP_COLS - SLIP_MAX; i += 2)
-			sad += fabsf(a[i] - b[i + k]);
-		if (sad < best) {
-			best = sad;
-			bestk = k;
+		float sum = 0;
+		for (int i = SLIP_MAX; i < SLIP_COLS - SLIP_MAX; i++)
+			sum += fabsf(a[i] - b[i - k]);
+		sad[k + SLIP_MAX] = sum;
+		if (sum < best) {
+			best = sum;
+			besti = k + SLIP_MAX;
 		}
 	}
-	return bestk; /* plane samples; *2 = sensor px */
+	if (besti <= 0 || besti >= 2 * SLIP_MAX)
+		return 1e9f;
+	float den = sad[besti - 1] - 2 * sad[besti] + sad[besti + 1];
+	float frac = (sad[besti - 1] - sad[besti + 1]) / (2 * den + 1e-9f);
+	frac = fminf(fmaxf(frac, -1.0f), 1.0f);
+	float k = (besti - SLIP_MAX) + frac;
+
+	return (float)(parb - para) - 2.0f * k; /* = D_b - D_a, sensor px */
 }
 
-static int cmp_int(const void *a, const void *b)
+static int cmp_float(const void *a, const void *b)
 {
-	return *(const int *)a - *(const int *)b;
+	float d = *(const float *)a - *(const float *)b;
+	return (d > 0) - (d < 0);
 }
 
 static int measure_rowslip(const uint16_t *raw, int pitch16, int s,
 			   int out[4])
 {
-	/* delta[phase]: shift between rows (phase, phase+2), phase = 0..1 */
+	float m[4];
+
 	for (int g = 0; g < 4; g++)
 		out[g] = 0;
-	int measured = 0;
 
-	for (int phase = 0; phase < 2; phase++) {
-		int v[64], n = 0;
-		for (int sy = 200 + phase; sy < 2000 && n < 64; sy += 44) {
-			int k = slip_pair_shift(raw, pitch16, s, sy, sy + 2);
-			if (k == 999)
-				continue;
-			/* pairs starting at (sy & 3) >= 2 measure -delta */
-			v[n++] = ((sy & 3) < 2) ? k : -k;
+	for (int ph = 0; ph < 4; ph++) {
+		float v[96];
+		int n = 0;
+		for (int row = 200 + ph; row < 2000 && n < 96; row += 20) {
+			float o = slip_adjacent(raw, pitch16, s, row);
+			if (o < 1e8f)
+				v[n++] = o;
 		}
-		if (n < 12)
+		if (n < 10)
 			return 0; /* not enough texture */
-		qsort(v, n, sizeof(int), cmp_int);
-		int med = v[n / 2];              /* plane samples */
-		int spread = v[3 * n / 4] - v[n / 4];
-		if (spread > 2)
-			return 0; /* inconsistent - don't compensate */
-		/*
-		 * med plane-samples == half the relative slip in sensor px.
-		 * Split it symmetrically between the two row phases and
-		 * round to even so the CFA column phase is preserved.
-		 */
-		int e = (med >= 0) ? ((med + 1) & ~1) : -(((-med) + 1) & ~1);
-		out[phase] = -e;
-		out[phase + 2] = e;
-		measured = 1;
+		qsort(v, n, sizeof(float), cmp_float);
+		m[ph] = v[n / 2];
+		if (v[3 * n / 4] - v[n / 4] > 3.0f)
+			return 0; /* inconsistent scene/motion */
 	}
-	return measured;
+	if (fabsf(m[0] + m[1] + m[2] + m[3]) > 3.0f)
+		return 0; /* chain doesn't close - don't trust it */
+
+	float d[4] = { 0, m[0], m[0] + m[1], m[0] + m[1] + m[2] };
+	float mean = 0.25f * (d[0] + d[1] + d[2] + d[3]);
+	for (int ph = 0; ph < 4; ph++) {
+		float c = d[ph] - mean;
+		/* nearest even integer: CFA column phase must be kept */
+		out[ph] = 2 * (int)floorf(0.5f * c + 0.5f);
+	}
+	return 1;
 }
 
 struct AeState {
