@@ -31,16 +31,17 @@ opticalBlack.float.manualBiasGR = 0.05865103;
 opticalBlack.float.manualBiasGB = 0.05865103;
 opticalBlack.float.manualBiasB  = 0.05865103;
 
-# CCM: from the RPi calibrated tuning for this exact module
-# (reference/imx415-tuning-pisp.json, same table the CUDA path uses),
-# 4605 K entry - the mid-table compromise, since this schema takes a
-# single matrix, not a per-CCT set. NVIDIA stores the TRANSPOSE of the
-# usual rows-sum-to-1 CCM (columns sum to 1 here, exactly as in the
-# IMX219 reference file).
-# RPi source CTs for later iteration: 2698, 2930, 3643, 4605, 5658 K.
-colorCorrection.srgbMatrix[0] = { 1.49944000,-0.39248000, 0.01559000};
-colorCorrection.srgbMatrix[1] = {-0.41939000, 1.69456000,-0.88541000};
-colorCorrection.srgbMatrix[2] = {-0.08005000,-0.30208000, 1.86981000};
+# CCM: DISABLED in v2 (2026-07-13). v1 shipped the RPi-calibrated 4605 K
+# matrix (reference/imx415-tuning-pisp.json, transposed to NVIDIA's
+# column-sum-1 layout) and produced the same yellow-green cast as the old
+# IMX219 override file - two different fixed CCMs, same cast, while the
+# no-override defaults stayed neutral. Hypothesis: a fixed srgbMatrix
+# displaces the CT-adaptive color pipeline and needs a matching awb.*
+# calibration curve to keep AWB honest. v2 = pedestal only, to isolate.
+# RPi source CTs if this gets revisited: 2698, 2930, 3643, 4605, 5658 K.
+#colorCorrection.srgbMatrix[0] = { 1.49944000,-0.39248000, 0.01559000};
+#colorCorrection.srgbMatrix[1] = {-0.41939000, 1.69456000,-0.88541000};
+#colorCorrection.srgbMatrix[2] = {-0.08005000,-0.30208000, 1.86981000};
 
 # Deliberately NOT set in v1 (daemon defaults apply):
 # - awb.* calibration curve: default AWB found neutral OK in test snaps;

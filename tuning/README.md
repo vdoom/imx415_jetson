@@ -32,6 +32,21 @@ Consequence: **black level is the only contrast lever** on this JetPack —
 there is no tone-curve control. Saturation/EE are available at runtime
 instead (`nvarguscamerasrc saturation=… ee-mode=…`).
 
+## Iteration log
+
+- **v1 (2026-07-13)**: pedestal 60/1023 + RPi 4605 K CCM. Target result:
+  contrast/haze FIXED (pedestal works), but the same yellow-green cast as
+  the old IMX219 override file. Pattern across three configs — defaults =
+  neutral, IMX219 CCM = cast, our CCM = cast — points to `srgbMatrix`
+  displacing CT-adaptive color and requiring a matching `awb.*` calibration
+  curve. (Second suspect, not yet excluded: IR-CUT in night position during
+  the late-night test shots — IR contamination also yellows everything;
+  keep the filter in **day** position for color tests: `tools/ircut.sh day`.)
+- **v2 (2026-07-13)**: pedestal only, CCM commented out — the isolating
+  experiment. Expected: neutral color like defaults + fixed contrast. If
+  confirmed, decide: accept default color science (likely fine), or derive
+  the NVIDIA U-space AWB curve from the RPi `ct_curve` to re-enable the CCM.
+
 ## Iteration loop
 
 ```bash
