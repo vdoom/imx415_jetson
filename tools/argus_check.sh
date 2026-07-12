@@ -82,9 +82,14 @@ view)
 	fi
 	echo "== ISP -> /dev/video10; view with: ustreamer -d /dev/video10 (browser :8080) =="
 	echo "== Ctrl-C stops it =="
+	# identity drop-allocation=1: v4l2sink's buffer-pool proposal on a
+	# loopback device breaks nvvidconv's allocation query -> the pipeline
+	# dies at start with "not-negotiated (-4)" (hit on target 2026-07-13).
+	# Dropping the allocation query is the standard Jetson-as-webcam fix.
 	gst-launch-1.0 nvarguscamerasrc sensor-id=0 sensor-mode="$SENSOR_MODE" \
 		! "video/x-raw(memory:NVMM),width=$W,height=$H,framerate=30/1,format=NV12" \
 		! nvvidconv ! "video/x-raw,width=1932,height=1096,format=YUY2" \
+		! identity drop-allocation=1 \
 		! v4l2sink device=/dev/video10 || post_mortem
 	;;
 debug)

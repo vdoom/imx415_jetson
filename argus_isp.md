@@ -1,4 +1,24 @@
-# Argus/ISP support (Phase H) — host work done 2026-07-12, awaiting target validation
+# Argus/ISP support (Phase H) — host work done 2026-07-12; core VALIDATED on target 2026-07-13
+
+## Target validation 2026-07-13
+
+- **Argus works**: daemon enumerates both modes, `fps` and `snap` ran clean.
+  The enumeration line proves the dB conversion:
+  `Analog Gain range min 1.000000, max 31.622776` = exactly 0–30 dB as
+  linear multipliers; exposure range 59000–33200000 ns = the DT 59–33200 µs.
+- **`view` initially failed** with `not-negotiated (-4)`: `v4l2sink`'s
+  buffer-pool proposal on a v4l2loopback device breaks `nvvidconv`'s
+  allocation query. Fixed in `tools/argus_check.sh` with the standard
+  `identity drop-allocation=1` shim before `v4l2sink`.
+- **Stray tuning file found**: the target has a
+  `/var/nvidia/nvcam/settings/camera_overrides.isp` we never shipped
+  (provenance unknown — likely an old vendor-guide install). The daemon
+  rejects many of its attributes (`em.*`, `ltm.*`, `dae.*`, …) but applies
+  the valid ones to *every* camera, and `LSC: LSC surface is not based on
+  full res!` hints its lens-shading tables are for a different sensor.
+  Stash it (`sudo mv ... ~/camera_overrides.isp.stashed`), restart the
+  daemon, re-judge colors — this file, not NVIDIA's defaults, was the
+  color baseline of the first snaps.
 
 Goal: `nvarguscamerasrc`/libargus pipelines (hardware ISP: demosaic, AE, AWB,
 noise reduction, YUV out) on top of the existing IMX415 port, without breaking
