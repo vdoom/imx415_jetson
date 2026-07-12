@@ -106,14 +106,19 @@ SCF/ICP errors across repeated runs.
 
 ## Known caveats going in
 
-1. **The 4-lane row slip is NOT compensated in the Argus path.** The ±8/±12 px
-   4-row staircase (see `tools/cuda_debayer/`, commits 4eb46b1/14286dc) is in
-   the raw stream the ISP consumes; our compensation lives in the CUDA
-   debayer, which Argus bypasses. Expect the same green/purple edge comb in
-   `argus_snap.jpg` on detailed scenes. If (only if) Argus output shows it and
-   it matters: root-cause probes are still pending — `tools/zigzag_check.sh`
-   (HMAX margin poke) + FFC reseat; a hardware-level fix would clean both
-   paths at once (and the CUDA compensation self-disables when it measures 0).
+1. ~~The 4-lane row slip is NOT compensated in the Argus path~~ —
+   **RESOLVED 2026-07-13, and the answer is a root-cause bombshell: the
+   Argus/ISP output has NO row slip.** Full-res crops of the v2 target snap
+   (sharp bezel edges, 3× nearest-neighbor) show clean straight edges — a
+   ±8/±12 px 4-row staircase would be unmissable at that zoom and cannot be
+   smoothed away by NR. Same sensor, same 4-lane/891M link, same HMAX — so
+   the slip is NOT a sensor/link/PHY defect: it lives in how the *kernel
+   V4L2 capture path* programs NVCSI/VI versus how Argus's RTCPU-driven
+   capture path does. Consequences: (a) ISP consumers need no compensation,
+   ever; (b) the raw-V4L2 path still slips and keeps the CUDA dezigzag;
+   (c) the pending root-cause probe changes target: diff the VI/NVCSI
+   channel programming between the two paths (not HMAX margin, not FFC
+   reseat).
 2. **Colors come from NVIDIA's default tuning** — no `.isp` override shipped.
    ~~If not good enough: tuning file follow-up.~~ **Resolved 2026-07-13**:
    default tuning proved unacceptable (milky haze = under-subtracted black

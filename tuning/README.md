@@ -43,9 +43,16 @@ instead (`nvarguscamerasrc saturation=… ee-mode=…`).
   the late-night test shots — IR contamination also yellows everything;
   keep the filter in **day** position for color tests: `tools/ircut.sh day`.)
 - **v2 (2026-07-13)**: pedestal only, CCM commented out — the isolating
-  experiment. Expected: neutral color like defaults + fixed contrast. If
-  confirmed, decide: accept default color science (likely fine), or derive
-  the NVIDIA U-space AWB curve from the RPi `ct_curve` to re-enable the CCM.
+  experiment. **VALIDATED on target same night**: cast gone, contrast keeps
+  the pedestal fix; remaining warm tint matches the scene's actual warm
+  LED lighting (dim apartment) — that's correct AWB behavior, not a defect.
+  Hypothesis confirmed: a fixed `srgbMatrix` without a matching `awb.*`
+  calibration curve deranges AWB. **v2 is the shipping configuration.**
+  Re-enabling the CCM requires deriving the NVIDIA U-space AWB curve from
+  the RPi `ct_curve` first — only worth it if a real color complaint shows
+  up under daylight (final confirmation snap still pending).
+  Bonus finding from the v2 full-res snap: **no 4-lane row slip in the
+  ISP path** (see `../argus_isp.md`) — clean bezel edges at 3× zoom.
 
 ## Iteration loop
 
