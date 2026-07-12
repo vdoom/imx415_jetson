@@ -10,15 +10,18 @@
   buffer-pool proposal on a v4l2loopback device breaks `nvvidconv`'s
   allocation query. Fixed in `tools/argus_check.sh` with the standard
   `identity drop-allocation=1` shim before `v4l2sink`.
-- **Stray tuning file found**: the target has a
-  `/var/nvidia/nvcam/settings/camera_overrides.isp` we never shipped
-  (provenance unknown — likely an old vendor-guide install). The daemon
-  rejects many of its attributes (`em.*`, `ltm.*`, `dae.*`, …) but applies
-  the valid ones to *every* camera, and `LSC: LSC surface is not based on
-  full res!` hints its lens-shading tables are for a different sensor.
-  Stash it (`sudo mv ... ~/camera_overrides.isp.stashed`), restart the
-  daemon, re-judge colors — this file, not NVIDIA's defaults, was the
-  color baseline of the first snaps.
+- **Stray tuning file found**: the target had a
+  `/var/nvidia/nvcam/settings/camera_overrides.isp` — per the user, an old
+  image-quality fix **for the stock IMX219**. The file is global (applies
+  to every camera), so it was silently tuning the IMX415 too — that
+  explains `LSC: LSC surface is not based on full res!` (IMX219-sized
+  lens-shading surface vs our 3864×2192). This JP6 daemon also rejects a
+  large chunk of its attributes (`em.*`, `ltm.*`, `dae.*`, …) — it's from
+  an older JetPack's schema. Stashed to `~/camera_overrides.isp.stashed`
+  (restore only if the IMX219 boot entry is used again); colors must be
+  judged on snaps taken *after* the stash + daemon restart. If both
+  cameras ever run together, write a module-scoped override for the
+  IMX415 badge instead of a global file.
 
 Goal: `nvarguscamerasrc`/libargus pipelines (hardware ISP: demosaic, AE, AWB,
 noise reduction, YUV out) on top of the existing IMX415 port, without breaking
