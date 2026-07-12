@@ -32,8 +32,14 @@ so `-C override_enable` reading 0 is normal and meaningless. Instead:
 stream and check `v4l2-ctl -c gain=15000` visibly brightens, or set
 exposure/gain before a capture and confirm brightness tracks the values.
 Consequence: the control can no longer disable the applied-at-stream-on
-behavior persistently (next stream-on re-asserts it) — intentional, this
-sensor is raw-V4L2-only and the caching default protects nothing here.
+behavior persistently (next stream-on re-asserts it) — intentional, the
+caching default protects nothing here. Argus (added 2026-07-12, DT-only —
+see `../argus_isp.md`) is unaffected: it reprograms exposure/gain per-frame
+through the same controls right after stream-on, so the one-time cached
+application at most colors the first frames. The driver's gain contract
+stays **dB × 1000** for everyone; Argus converts its linear multipliers
+itself because the DT sets `use_decibel_gain = "true"` (userspace-only
+property, the kernel never reads it).
 
 **Two follow-up fixes (2026-07-10, found by on-target I2C readback once
 overrides started applying):**

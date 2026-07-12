@@ -1,4 +1,4 @@
-# Deploy package (Phase F) — built 2026-07-07, module rebuilt 2026-07-10
+# Deploy package (Phase F) — built 2026-07-07, module rebuilt 2026-07-10, dtbo rebuilt 2026-07-12 (Argus)
 
 Contents:
 - `nv_imx415.ko` — vermagic `5.15.185-tegra SMP preempt mod_unload modversions aarch64`;
@@ -14,7 +14,11 @@ Contents:
   target reinstalls old artifacts and its checksums still self-verify
   (this bit us on 2026-07-10: a Phase-F-era `~/imx415_deploy` brought back
   the embedded-metadata bug).
-- `tegra234-p3767-camera-p3768-imx415.dtbo` — the CAM1 overlay
+- `tegra234-p3767-camera-p3768-imx415.dtbo` — the CAM1 overlay; rebuilt
+  2026-07-12 (sha1 53381cb5) with the Argus/ISP properties
+  (`use_decibel_gain`, lens node + `v4l2_lens` drivernode — see
+  `../argus_isp.md`). Raw-V4L2 behavior is untouched. After installing +
+  rebooting, validate Argus with `tools/argus_check.sh`.
 - `checksums.sha1` — verified by the installer
 - `install_on_target.sh` — one-shot installer (idempotent, run with sudo)
 

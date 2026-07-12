@@ -47,6 +47,12 @@
 							sysfs-device-tree = "/sys/firmware/devicetree/base/bus@0/cam_i2cmux/i2c@1/rbpcv415_c@37";
 							phandle = <0x08>;
 						};
+
+						drivernode1 {
+							pcl_id = "v4l2_lens";
+							sysfs-device-tree = "/sys/firmware/devicetree/base/bus@0/lens_imx415@IMX41598";
+							phandle = <0x09>;
+						};
 					};
 				};
 			};
@@ -62,7 +68,7 @@
 
 						channel@1 {
 							reg = <0x00>;
-							phandle = <0x09>;
+							phandle = <0x0a>;
 
 							ports {
 								#address-cells = <0x01>;
@@ -70,7 +76,7 @@
 
 								port@0 {
 									reg = <0x00>;
-									phandle = <0x0a>;
+									phandle = <0x0b>;
 
 									endpoint@2 {
 										port-index = <0x02>;
@@ -82,7 +88,7 @@
 
 								port@1 {
 									reg = <0x01>;
-									phandle = <0x0b>;
+									phandle = <0x0c>;
 
 									endpoint@3 {
 										remote-endpoint = <0x03>;
@@ -117,6 +123,7 @@
 							physical_h = "3.178";
 							sensor_model = "imx415";
 							use_sensor_mode_id = "true";
+							use_decibel_gain = "true";
 
 							mode0 {
 								mclk_khz = "37125";
@@ -214,6 +221,14 @@
 					};
 				};
 
+				lens_imx415@IMX41598 {
+					min_focus_distance = "0.0";
+					hyper_focal = "0.0";
+					focal_length = "3.95";
+					f_number = "2.0";
+					aperture = "0.0";
+				};
+
 				gpio@2200000 {
 
 					camera-control-output-low {
@@ -263,6 +278,7 @@
 		rbpcv415_imx415_vi_in1 = "/fragment@0/__overlay__/tegra-capture-vi/ports/port@1/endpoint";
 		cam_module1 = "/fragment@0/__overlay__/tegra-camera-platform/modules/module1";
 		cam_module1_drivernode0 = "/fragment@0/__overlay__/tegra-camera-platform/modules/module1/drivernode0";
+		cam_module1_drivernode1 = "/fragment@0/__overlay__/tegra-camera-platform/modules/module1/drivernode1";
 		csi_chan1 = "/fragment@0/__overlay__/bus@0/host1x@13e00000/nvcsi@15a00000/channel@1";
 		csi_chan1_port0 = "/fragment@0/__overlay__/bus@0/host1x@13e00000/nvcsi@15a00000/channel@1/ports/port@0";
 		rbpcv415_imx415_csi_in1 = "/fragment@0/__overlay__/bus@0/host1x@13e00000/nvcsi@15a00000/channel@1/ports/port@0/endpoint@2";

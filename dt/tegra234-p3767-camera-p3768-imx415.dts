@@ -57,6 +57,10 @@
 							pcl_id = "v4l2_sensor";
 							sysfs-device-tree = "/sys/firmware/devicetree/base/bus@0/cam_i2cmux/i2c@1/rbpcv415_c@37";
 						};
+						cam_module1_drivernode1: drivernode1 {
+							pcl_id = "v4l2_lens";
+							sysfs-device-tree = "/sys/firmware/devicetree/base/bus@0/lens_imx415@IMX41598";
+						};
 					};
 				};
 			};
@@ -114,6 +118,15 @@
 							physical_h = "3.178";
 							sensor_model = "imx415";
 							use_sensor_mode_id = "true";
+							/*
+							 * Argus-only, kernel ignores it: our gain
+							 * control is dB x gain_factor, so the camera
+							 * core must convert its linear multipliers
+							 * to dB before setting the control (same
+							 * property as the Argus-supported FRAMOS
+							 * IMX715 overlays). V4L2 semantics unchanged.
+							 */
+							use_decibel_gain = "true";
 
 							mode0 { /* IMX415_MODE_3864x2192_30FPS */
 								/* module's own crystal; informational, no Tegra mclk */
@@ -230,6 +243,20 @@
 							};
 						};
 					};
+				};
+				/*
+				 * Fixed-focus M12 lens of the Waveshare IMX415-98 module
+				 * (spec PDF in reference/): EFL 3.95 mm, F/2.0, 98 deg FOV,
+				 * focus 20 cm..inf. Referenced by drivernode1 (v4l2_lens);
+				 * Argus reports these in its camera properties. Zeros mirror
+				 * the stock lens_imx219@RBPCV2 convention for unknown fields.
+				 */
+				lens_imx415@IMX41598 {
+					min_focus_distance = "0.0";
+					hyper_focal = "0.0";
+					focal_length = "3.95";
+					f_number = "2.0";
+					aperture = "0.0";
 				};
 				gpio@2200000 {
 					camera-control-output-low {
