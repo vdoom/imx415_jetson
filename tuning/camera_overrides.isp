@@ -1,0 +1,49 @@
+#* =============================================================
+#* ISP Configuration Override File - Sony IMX415 (Waveshare IMX415-98, CAM1)
+#* v1, 2026-07-13. Hand-written; NOT from NVIDIA calibration tools.
+#* Schema learned from the daemon itself: reference/camera_overrides.isp.stashed
+#* (a Char-lite IMX219 calibration) vs the JP6.2.2 daemon's rejection log.
+#* This daemon ACCEPTS only: opticalBlack.*, colorCorrection.srgbMatrix,
+#* awb.<calibration curve>, lensShading/falloff surfaces. It REJECTS all
+#* tone/look keys (gtm, ltm, dae, scene.*, saturation, sharpness,
+#* noiseReduction, sensor.companding) - those are not available on JP6.
+#*
+#* Deploy on target:
+#*   sudo cp camera_overrides.isp /var/nvidia/nvcam/settings/
+#*   sudo chmod 664 /var/nvidia/nvcam/settings/camera_overrides.isp
+#*   sudo systemctl restart nvargus-daemon
+#* Verify: journalctl -u nvargus-daemon | grep -i "camera_overrides"
+#* must show NO "Error: Invalid" lines after the next capture.
+#* =============================================================
+
+# Optical black (pedestal). THE fix for the milky low-contrast default
+# output: the sensor's black level is 240/4095 (12-bit) = 60/1023 (10-bit),
+# the same value the CUDA debayer subtracts (validated there). Without the
+# subtraction the constant offset passes WB+CCM and lifts shadows into a
+# purple haze. int values are 10-bit LSBs (mode0); floats = 60/1023 and
+# should govern in both bit depths.
+opticalBlack.manualBiasR   = 60;
+opticalBlack.manualBiasGR  = 60;
+opticalBlack.manualBiasGB  = 60;
+opticalBlack.manualBiasB   = 60;
+opticalBlack.float.manualBiasR  = 0.05865103;
+opticalBlack.float.manualBiasGR = 0.05865103;
+opticalBlack.float.manualBiasGB = 0.05865103;
+opticalBlack.float.manualBiasB  = 0.05865103;
+
+# CCM: from the RPi calibrated tuning for this exact module
+# (reference/imx415-tuning-pisp.json, same table the CUDA path uses),
+# 4605 K entry - the mid-table compromise, since this schema takes a
+# single matrix, not a per-CCT set. NVIDIA stores the TRANSPOSE of the
+# usual rows-sum-to-1 CCM (columns sum to 1 here, exactly as in the
+# IMX219 reference file).
+# RPi source CTs for later iteration: 2698, 2930, 3643, 4605, 5658 K.
+colorCorrection.srgbMatrix[0] = { 1.49944000,-0.39248000, 0.01559000};
+colorCorrection.srgbMatrix[1] = {-0.41939000, 1.69456000,-0.88541000};
+colorCorrection.srgbMatrix[2] = {-0.08005000,-0.30208000, 1.86981000};
+
+# Deliberately NOT set in v1 (daemon defaults apply):
+# - awb.* calibration curve: default AWB found neutral OK in test snaps;
+#   derive from the RPi ct_curve only if casts show up.
+# - lensShading.*: no calibration data for this M12 lens; the IMX219
+#   surfaces were wrong-resolution garbage for it anyway.

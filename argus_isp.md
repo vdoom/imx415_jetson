@@ -115,11 +115,12 @@ SCF/ICP errors across repeated runs.
    (HMAX margin poke) + FFC reseat; a hardware-level fix would clean both
    paths at once (and the CUDA compensation self-disables when it measures 0).
 2. **Colors come from NVIDIA's default tuning** — no `.isp` override shipped.
-   Expect duller/greener output than the CUDA path (which uses the RPi
-   calibrated CCMs). If good enough: done. If not: a
-   `/var/nvidia/nvcam/settings/camera_overrides.isp` (or badge-named
-   `jakku_rear_IMX415.isp`) tuning file is the follow-up — iterative, needs
-   the camera in hand.
+   ~~If not good enough: tuning file follow-up.~~ **Resolved 2026-07-13**:
+   default tuning proved unacceptable (milky haze = under-subtracted black
+   level, confirmed by snap comparison vs the old IMX219 overrides whose
+   pedestal block was doing the heavy lifting). Our own override file lives
+   in `tuning/camera_overrides.isp` (pedestal 60/1023 + RPi-calibrated CCM);
+   schema ground truth and iteration loop in `tuning/README.md`.
 3. **Two modes, same resolution** (10-bit mode0 / 12-bit mode1): Argus mode
    selection by resolution is ambiguous — always pass `sensor-mode=0|1`
    explicitly (the check script does).
