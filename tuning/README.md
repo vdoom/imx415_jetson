@@ -53,6 +53,12 @@ instead (`nvarguscamerasrc saturation=… ee-mode=…`).
   up under daylight (final confirmation snap still pending).
   Bonus finding from the v2 full-res snap: **no 4-lane row slip in the
   ISP path** (see `../argus_isp.md`) — clean bezel edges at 3× zoom.
+- **v3 (2026-07-13)**: user verdict on v2 = "grayish, lost saturation".
+  Added a **pure saturation matrix** (s=1.4): chroma scaled radially, no
+  hue rotation, neutrals = exact fixed points → boosts color like v1
+  without v1's AWB-cast mechanism. `s` is the single tuning knob (see
+  comments in the file). Runtime alternative that stacks ON TOP (use one
+  or the other, not both): `nvarguscamerasrc saturation=1.4`.
 
 ## Iteration loop
 

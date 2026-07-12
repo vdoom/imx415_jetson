@@ -31,17 +31,24 @@ opticalBlack.float.manualBiasGR = 0.05865103;
 opticalBlack.float.manualBiasGB = 0.05865103;
 opticalBlack.float.manualBiasB  = 0.05865103;
 
-# CCM: DISABLED in v2 (2026-07-13). v1 shipped the RPi-calibrated 4605 K
-# matrix (reference/imx415-tuning-pisp.json, transposed to NVIDIA's
-# column-sum-1 layout) and produced the same yellow-green cast as the old
-# IMX219 override file - two different fixed CCMs, same cast, while the
-# no-override defaults stayed neutral. Hypothesis: a fixed srgbMatrix
-# displaces the CT-adaptive color pipeline and needs a matching awb.*
-# calibration curve to keep AWB honest. v2 = pedestal only, to isolate.
-# RPi source CTs if this gets revisited: 2698, 2930, 3643, 4605, 5658 K.
-#colorCorrection.srgbMatrix[0] = { 1.49944000,-0.39248000, 0.01559000};
-#colorCorrection.srgbMatrix[1] = {-0.41939000, 1.69456000,-0.88541000};
-#colorCorrection.srgbMatrix[2] = {-0.08005000,-0.30208000, 1.86981000};
+# CCM history:
+# v1: RPi-calibrated 4605 K matrix -> yellow-green cast (any hue-rotating
+#     matrix moves the gray locus the default awb.* curve was tuned for;
+#     same failure as the old IMX219 file's matrix).
+# v2: no matrix -> neutral but user verdict "grayish, lost saturation"
+#     (default CT-adaptive CCM is very mild).
+# v3 (2026-07-13, current): PURE SATURATION matrix, s = 1.4:
+#     M = s*I + (1-s)*W (W rows = BT.601 luma weights), transposed to
+#     NVIDIA's column-sum-1 layout. Scales chroma radially, rotates no
+#     hues, maps neutrals exactly to themselves -> AWB white point
+#     untouched (the v1 cast mechanism cannot fire). v1's punch with
+#     v2's neutrality. Tune s here if needed: 1.0 = v2, ~1.4 = v1-like
+#     chroma; regenerate via M = s*I+(1-s)*W, transpose, columns sum 1.
+# RPi source CTs if real CCMs get revisited (needs the awb.* curve
+# derived first): 2698, 2930, 3643, 4605, 5658 K.
+colorCorrection.srgbMatrix[0] = { 1.28040000,-0.11960000,-0.11960000};
+colorCorrection.srgbMatrix[1] = {-0.23480000, 1.16520000,-0.23480000};
+colorCorrection.srgbMatrix[2] = {-0.04560000,-0.04560000, 1.35440000};
 
 # Deliberately NOT set in v1 (daemon defaults apply):
 # - awb.* calibration curve: default AWB found neutral OK in test snaps;
