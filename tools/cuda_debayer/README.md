@@ -23,10 +23,13 @@ each sensor row is displaced horizontally by a per-4-row staircase (measured
 and reset every 4), measured directly on raw CFA planes — present in every
 frame, absent in the archived 2-lane capture. Visible as
 green/purple fringes on every edge plus fake "soft focus" (the ±8 px comb
-averages into horizontal blur; fine text is unreadable). Root cause is in
-the sensor/link layer, not the sensor registers (byte-for-byte upstream) —
-diagnose with `tools/zigzag_check.sh` (HMAX-margin test) and by reseating
-the FFC cable. Until a hardware-level fix is found, the tool measures the
+averages into horizontal blur; fine text is unreadable). Root cause update
+(2026-07-13): the Argus/ISP path from the same sensor/link/HMAX is **slip-
+free** (full-res snap crops, see `../../argus_isp.md`), so the defect is
+NOT in the sensor/link/PHY — it lives in how the kernel V4L2 path programs
+NVCSI/VI versus Argus's RTCPU-driven capture (the old HMAX-margin/FFC
+probes are obsolete; the real lead is diffing that channel programming).
+Until that is found and ported, the tool measures the
 slip at startup from scene texture (retries if too flat) and reads every
 sensor row at its compensated x in the kernel. The measurement chains
 sub-pixel SAD alignments of adjacent rows' G samples around the 4-row cycle
