@@ -1,4 +1,22 @@
-# Argus/ISP support (Phase H) — host work done 2026-07-12; core VALIDATED on target 2026-07-13
+# Argus/ISP support (Phase H) — COMPLETE 2026-07-13 (daylight color check pending)
+
+Final state: Argus/nvarguscamerasrc fully working on target — both modes at
+30 fps, correct gain/exposure semantics, `tools/argus_check.sh` for
+fps/snap/view/debug, ISP output free of the 4-lane row slip, and tuning v3
+(pedestal + saturation matrix, `tuning/`) **user-approved** on an indoor
+scene. The deploy package installs everything including the tuning file
+(installer step 5/5). Open items: one daylight snap to close the color
+question; parked follow-ups — 72 dB composite gain for low light, U-space
+AWB curve derivation if calibrated CCMs are ever wanted, VI-programming
+diff to root-cause the raw-path row slip.
+
+One-time target persistence for the `view` flow (v4l2loopback does not
+survive reboot otherwise):
+
+```bash
+echo v4l2loopback | sudo tee /etc/modules-load.d/v4l2loopback.conf
+echo "options v4l2loopback video_nr=10 exclusive_caps=1" | sudo tee /etc/modprobe.d/v4l2loopback.conf
+```
 
 ## Target validation 2026-07-13
 

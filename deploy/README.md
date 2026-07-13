@@ -19,6 +19,11 @@ Contents:
   (`use_decibel_gain`, lens node + `v4l2_lens` drivernode — see
   `../argus_isp.md`). Raw-V4L2 behavior is untouched. After installing +
   rebooting, validate Argus with `tools/argus_check.sh`.
+- `camera_overrides.isp` — ISP tuning for Argus (v3 2026-07-13, user-approved:
+  pedestal 60/1023 + pure-saturation matrix s=1.4). Canonical copy lives in
+  `../tuning/` — re-copy here + refresh checksums when tuning changes.
+  Installer puts it in `/var/nvidia/nvcam/settings/` (backing up any
+  different existing file) and restarts nvargus-daemon.
 - `checksums.sha1` — verified by the installer
 - `install_on_target.sh` — one-shot installer (idempotent, run with sudo)
 

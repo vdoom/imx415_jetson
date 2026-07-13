@@ -13,6 +13,8 @@ KVER_EXPECTED="5.15.185-tegra"
 EXTLINUX=/boot/extlinux/extlinux.conf
 DTBO=tegra234-p3767-camera-p3768-imx415.dtbo
 KO=nv_imx415.ko
+ISP=camera_overrides.isp
+NVCAM=/var/nvidia/nvcam/settings
 MODDIR="/lib/modules/$(uname -r)/updates/drivers/media/i2c"
 
 if [ "$(id -u)" -ne 0 ]; then
@@ -26,17 +28,17 @@ if [ "$(uname -r)" != "$KVER_EXPECTED" ]; then
 fi
 sha1sum -c checksums.sha1
 
-echo "==> 1/4 backing up $EXTLINUX"
+echo "==> 1/5 backing up $EXTLINUX"
 cp -v "$EXTLINUX" "$EXTLINUX.bak-imx415-$(date +%Y%m%d%H%M%S)"
 
-echo "==> 2/4 installing kernel module to $MODDIR"
+echo "==> 2/5 installing kernel module to $MODDIR"
 install -v -D -m 0644 "$KO" "$MODDIR/$KO"
 depmod -a
 
-echo "==> 3/4 installing overlay to /boot"
+echo "==> 3/5 installing overlay to /boot"
 install -v -m 0644 "$DTBO" "/boot/$DTBO"
 
-echo "==> 4/4 adding 'imx415' boot entry"
+echo "==> 4/5 adding 'imx415' boot entry"
 if grep -qE '^LABEL[[:space:]]+imx415[[:space:]]*$' "$EXTLINUX"; then
 	echo "LABEL imx415 already present - leaving $EXTLINUX unchanged"
 else
@@ -83,6 +85,21 @@ else
 	rm -f "$TMP"
 	echo "--- new entry appended: ---"
 	sed -n '/^LABEL imx415/,$p' "$EXTLINUX"
+fi
+
+echo "==> 5/5 installing ISP tuning override to $NVCAM"
+if [ -f "$ISP" ]; then
+	mkdir -p "$NVCAM"
+	# don't silently clobber someone else's tuning (e.g. the old IMX219 fix)
+	if [ -f "$NVCAM/$ISP" ] && ! cmp -s "$ISP" "$NVCAM/$ISP"; then
+		cp -v "$NVCAM/$ISP" "$NVCAM/$ISP.bak-$(date +%Y%m%d%H%M%S)"
+	fi
+	install -v -m 0664 "$ISP" "$NVCAM/$ISP"
+	systemctl restart nvargus-daemon 2>/dev/null \
+		&& echo "nvargus-daemon restarted" \
+		|| echo "(nvargus-daemon not running - tuning applies on next start)"
+else
+	echo "(no $ISP in this deploy dir - skipping)"
 fi
 
 echo

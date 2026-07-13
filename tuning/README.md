@@ -59,6 +59,11 @@ instead (`nvarguscamerasrc saturation=… ee-mode=…`).
   without v1's AWB-cast mechanism. `s` is the single tuning knob (see
   comments in the file). Runtime alternative that stacks ON TOP (use one
   or the other, not both): `nvarguscamerasrc saturation=1.4`.
+  **USER-APPROVED on target 2026-07-13** ("I like it more", dim warm-LED
+  indoor scene) → v3 = shipping baseline; also copied into `../deploy/`
+  (installer step 5/5 installs + restarts the daemon). This `tuning/` copy
+  is canonical — after editing, re-copy to `deploy/` and refresh
+  `deploy/checksums.sha1`. Daylight confirmation snap still pending.
 
 ## Iteration loop
 
