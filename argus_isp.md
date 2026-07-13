@@ -15,8 +15,15 @@ survive reboot otherwise):
 
 ```bash
 echo v4l2loopback | sudo tee /etc/modules-load.d/v4l2loopback.conf
-echo "options v4l2loopback video_nr=10 exclusive_caps=1" | sudo tee /etc/modprobe.d/v4l2loopback.conf
+echo 'options v4l2loopback video_nr=10 exclusive_caps=1 card_label="IMX415 Argus"' | sudo tee /etc/modprobe.d/v4l2loopback.conf
 ```
+
+V4L2-webcam apps (cheese/guvcview) on the target's desktop: start
+`argus_check.sh view` FIRST (with exclusive_caps the loopback is only a
+camera while the producer feeds it), then launch the app fresh. Known
+flake: cheese failed loopback discovery on this target 2026-07-10 while
+guvcview and gst v4l2src worked — card_label may help; guvcview is the
+reliable fallback.
 
 ## Target validation 2026-07-13
 
