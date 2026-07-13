@@ -202,7 +202,7 @@ nvcsi-entity **без лінків** і без сенсорів — очікув
 | tegra_sinterface | **serial_c** | ✅ |
 | link_freq для INCK 37.125 | **445.5 МГц** (підтверджено контролом `link_frequency` на RPi) | ✅ |
 | pix_clk_hz | 178 200 000; але `line_length` = **5280** і framerate **15 fps** (перерахунок у `rpi5_imx415_data.md` §2.3) | ✅ |
-| fourcc формату на VI | — (Фаза G) | ⏳ |
+| fourcc формату на VI | **GB10** (`V4L2_PIX_FMT_SGBRG10`) для mode0; **GB12** (`V4L2_PIX_FMT_SGBRG12`) для mode1 (12-біт, з 2026-07-08). Виміряний layout у пам'яті (Фаза G): 16-біт контейнери, `raw16 = p<<6 \| p>>4` — розпакування `>>6` (GB10) / `>>4` (GB12), без паддінгу рядків | ✅ |
 | Полярність IR-CUT | **день (фільтр IN) = PP.01 high (1), ніч = low (0)**; керування через FFC pin 18 (= `extperiph2_clk_pp1`, main GPIO лінія 113), без дротів — pinmux fragment@1 в оверлеї + `tools/ircut.sh`; лінія відпущена = керує фізичний перемикач. Валідовано на target 2026-07-11 (`phase_g_validation.md`) | ✅ |
 
 ### 6.1 Головні поправки до гайду з Фази A (деталі у `rpi5_imx415_data.md` §2)
