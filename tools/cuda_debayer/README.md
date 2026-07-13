@@ -101,7 +101,10 @@ python3 gen_tuning.py   # only after changing reference/imx415-tuning-pisp.json
 - `--ae-max-exp US` — exposure ceiling before gain kicks in, default 33000
   (stays within the 30 fps frame; raise only if lower fps is acceptable)
 - `--exposure US` / `--gain MDB` — sensor exposure (µs) and gain (milli-dB,
-  0..30000); omitted = keep the last values set via v4l2-ctl
+  0..72000 since the 2026-07-13 72 dB driver update; >30000 engages the
+  sensor's digital gain); omitted = keep the last values set via v4l2-ctl.
+  The `--ae` loop deliberately stays capped at 30000 (analog only — digital
+  gain adds noise, not SNR; brighten in post instead)
 - `--bits 10|12` — sensor bit depth: selects DT mode0 (GB10) or mode1 (GB12)
   via the sensor_mode control and sets the VI unpack shift (>>6 or >>4)
 - `--no-awb` — skip AWB measurement (unity gains unless `--wb`/`--ct`)

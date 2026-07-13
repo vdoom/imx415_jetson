@@ -29,8 +29,14 @@
 #define IMX415_MAX_FRAME_LENGTH			0xfffff
 #define IMX415_MIN_INTEGRATION_LINES		4
 #define IMX415_MIN_SHR0				8
-#define IMX415_GAIN_REG_MAX			100
-#define IMX415_ANALOG_GAIN_DB_MAX		30
+/*
+ * GAIN_PCG_0 counts 0.3 dB steps: 0..100 = 0..30 dB analog, 101..240
+ * adds digital gain up to 72 dB total (Sony datasheet; the Rockchip
+ * production driver ships 0..0xf0 and the register-compatible FRAMOS
+ * IMX715 driver uses the same 240/72 conversion).
+ */
+#define IMX415_GAIN_REG_MAX			240
+#define IMX415_GAIN_DB_MAX			72
 
 /* imx415 sensor register address */
 #define IMX415_MODE_ADDR			0x3000
@@ -171,10 +177,10 @@ static int imx415_set_gain(struct tegracam_device *tc_dev, s64 val)
 
 	/*
 	 * val is dB x gain_factor; the GAIN_PCG_0 register counts 0.3 dB
-	 * steps: reg = dB / 0.3, range 0..100 (0..30 dB).
+	 * steps: reg = dB / 0.3, range 0..240 (0..72 dB, digital above 30).
 	 */
 	gain = (u32)(val * IMX415_GAIN_REG_MAX /
-		(IMX415_ANALOG_GAIN_DB_MAX *
+		(IMX415_GAIN_DB_MAX *
 		 mode->control_properties.gain_factor));
 
 	if (gain > IMX415_GAIN_REG_MAX)

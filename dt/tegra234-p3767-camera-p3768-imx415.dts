@@ -158,9 +158,14 @@
 								gain_factor = "1000";
 								framerate_factor = "1000000";
 								exposure_factor = "1000000";
-								/* 0..30 dB in 0.3 dB steps (GAIN_PCG_0 0..100) */
+								/*
+								 * 0..72 dB in 0.3 dB steps (GAIN_PCG_0
+								 * 0..240): analog to 30 dB, digital
+								 * beyond - same range the Rockchip and
+								 * FRAMOS IMX715 drivers ship.
+								 */
 								min_gain_val = "0";
-								max_gain_val = "30000";
+								max_gain_val = "72000";
 								step_gain_val = "300";
 								default_gain = "0";
 								min_hdr_ratio = "1";
@@ -212,8 +217,9 @@
 								gain_factor = "1000";
 								framerate_factor = "1000000";
 								exposure_factor = "1000000";
+								/* 0..72 dB, see mode0 */
 								min_gain_val = "0";
-								max_gain_val = "30000";
+								max_gain_val = "72000";
 								step_gain_val = "300";
 								default_gain = "0";
 								min_hdr_ratio = "1";

@@ -9,7 +9,7 @@ switch by stopping one and starting the other; no reboot, no config change.
 | Engine | NVIDIA hw ISP via nvargus daemon | our GPU kernels on raw `/dev/video0` |
 | Color | ISP + `tuning/camera_overrides.isp` (v3: pedestal + saturation s=1.4) | RPi-calibrated CCM/ALSC/AWB + own AE |
 | Row slip | **clean** (no compensation needed) | compensated in-kernel (dezigzag) |
-| Exposure | Argus AE (max 30 dB / 33 ms) | `--ae` loop (same sensor limits) |
+| Exposure | Argus AE (up to 72 dB / 33 ms) | `--ae` loop (caps at 30 dB analog by policy; manual `--gain` to 72000) |
 | Output | NVMM/YUV into GStreamer/Argus apps | RGB8 on GPU (`d_rgb` integration point) |
 | Best for | encoding, RTSP, DeepStream, "just a camera" | custom CUDA/ML consumers, full control |
 | Docs | `argus_isp.md`, `tuning/README.md` | `tools/cuda_debayer/README.md` |

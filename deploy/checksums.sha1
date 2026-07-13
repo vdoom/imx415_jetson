@@ -1,4 +1,4 @@
-19169df35bd556bb8f61c9ae2de041b52bb48d10  nv_imx415.ko
-53381cb595474fa364492b7be8c0bf8f1deda7d8  tegra234-p3767-camera-p3768-imx415.dtbo
+5cea9ce19fd3cc51f286cd4ef65eea42532d874b  nv_imx415.ko
+1c0a9101a1dfc60c2c47af9795e61ce210337a2b  tegra234-p3767-camera-p3768-imx415.dtbo
 fa4d34a75017375327139f21b721c3aa918ba0b2  camera_overrides.isp
 fadd32b486679d2f783b293b35a7deb9280b6b68  install_on_target.sh

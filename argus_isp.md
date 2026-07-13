@@ -6,9 +6,12 @@ fps/snap/view/debug, ISP output free of the 4-lane row slip, and tuning v3
 (pedestal + saturation matrix, `tuning/`) **user-approved** on an indoor
 scene. The deploy package installs everything including the tuning file
 (installer step 5/5). Open items: one daylight snap to close the color
-question; parked follow-ups — 72 dB composite gain for low light, U-space
-AWB curve derivation if calibrated CCMs are ever wanted, VI-programming
-diff to root-cause the raw-path row slip.
+question; parked follow-ups — U-space AWB curve derivation if calibrated
+CCMs are ever wanted, VI-programming diff to root-cause the raw-path row
+slip. (72 dB composite gain: **done 2026-07-13** — driver clamp 100→240 +
+DT max_gain_val 72000; Argus now reports gain 1–3981× and its AE can use
+digital gain in the dark. The dB→register mapping is unchanged, so all
+prior register-exact validation still holds below 30 dB.)
 
 How to run this path, the CUDA path, switch between them, and view either
 in a browser or webcam app: **`USAGE.md`** (repo root). The v4l2loopback

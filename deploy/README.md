@@ -1,4 +1,12 @@
-# Deploy package (Phase F) — built 2026-07-07, module rebuilt 2026-07-10, dtbo rebuilt 2026-07-12 (Argus)
+# Deploy package (Phase F) — built 2026-07-07; ko + dtbo rebuilt 2026-07-13 (72 dB gain)
+
+**72 dB gain update (2026-07-13, ko sha1 5cea9ce1, dtbo sha1 1c0a9101):**
+gain control range 0–30 dB → **0–72 dB** (analog to 30, digital above,
+0.3 dB steps; Rockchip/FRAMOS-matched). Install BOTH artifacts + reboot.
+Mixed old/new combinations are safe (silently cap at 30 dB). Validate:
+mid-stream `v4l2-ctl -c gain=45000` must brighten beyond gain=30000
+(register: i2c reg 0x3090 should read 150 = 0x96); Argus enumeration
+line now reports `Analog Gain range min 1.000000, max 3981.xxx`.
 
 Contents:
 - `nv_imx415.ko` — vermagic `5.15.185-tegra SMP preempt mod_unload modversions aarch64`;
