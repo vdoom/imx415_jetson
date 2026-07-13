@@ -10,7 +10,7 @@ tree at `.../source/hardware/nvidia/t23x/nv-public/overlay/` (same .dts + one
   byte-level review (diff it against `../reference/imx219-C-donor-decompiled.dts`
   to see exactly what changed vs the stock donor).
 
-## Status: running on target since Phase G (2026-07-07); 4-lane since 2026-07-08; IR-CUT pinmux validated 2026-07-11; Argus/ISP properties (dtbo 53381cb5) **validated on target 2026-07-13**; 72 dB gain range added 2026-07-13 (dtbo sha1 1c0a9101, pairs with ko 5cea9ce1) — awaiting target validation.
+## Status: running on target since Phase G (2026-07-07); 4-lane since 2026-07-08; IR-CUT pinmux validated 2026-07-11; Argus/ISP properties (dtbo 53381cb5) **validated on target 2026-07-13**; 72 dB gain range (dtbo sha1 1c0a9101 + ko 5cea9ce1) **validated on target 2026-07-13** — registers byte-exact, Argus reports 1–3981×.
 
 ## Deltas vs imx219-C donor (everything else donor-identical)
 

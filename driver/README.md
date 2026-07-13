@@ -14,8 +14,11 @@ there.
 dB→register mapping (reg = dB/0.3) is byte-identical below 30 dB — only
 the clamp moved — so the 2026-07-10 register-exact validation still
 holds; >30 dB engages the sensor's digital gain (Rockchip ships 0–0xf0,
-FRAMOS IMX715 uses the same 240/72 conversion). Validate on target:
-mid-stream `v4l2-ctl -c gain=45000` → reg 0x3090 reads 0x96 (150).
+FRAMOS IMX715 uses the same 240/72 conversion). **VALIDATED on target
+2026-07-13** (`tools/gain72_check.sh`): GAIN_PCG_0 byte-exact at
+15/30/45/72 dB → 0x32/0x64/0x96/0xf0, brightness strictly increasing,
+Argus enumerates gain 1–3981×. NB values beyond 72000 are silently
+CLAMPED by the v4l2 framework (spec behavior), not rejected.
 
 `nv_imx415.ko`: vermagic `5.15.185-tegra SMP preempt mod_unload modversions aarch64`
 (= target), alias `of:N*T*Csony,imx415*`, depends `tegra-camera`.
