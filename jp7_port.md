@@ -5,9 +5,14 @@ Port of the validated JetPack 6.2.2 bring-up (branch `main`) to
 Ubuntu 24.04). Done natively on the target — this branch was built on the
 Jetson itself, not cross-built on an x86 host.
 
-**Status: built and ground-truth-checked on the target, not yet booted.**
-The install/reboot/stream steps need `sudo`, which the agent session does
-not have; they are listed in §5 for the user.
+**Status (2026-09-16 15:05): installed, booted, raw V4L2 path VALIDATED
+on JP7.** With `DEFAULT imx415` the overlay is live (gain max 72000, lens
+node), `nv_imx415` binds `9-0037`, the media graph links sensor → nvcsi →
+vi, GB10 and GB12 enumerate at 3864x2192@30 and both stream at a flat
+30.00 fps; the exposure/gain ladder (1 ms/0 dB → 33 ms/15 dB → 1 ms/0 dB)
+gives means 50.6 → 173.7 → 50.6, i.e. the JP6 numbers. **Argus/ISP path:
+blocked by a JP7 policy change** (§6) — fix shipped in `deploy/`, needs one
+more sudo step.
 
 ## 1. Environment (the target this branch was built on)
 
@@ -138,3 +143,29 @@ accepted ISP override keys (`journalctl -u nvargus-daemon | grep -c "Invalid
 isp config"` must stay 0), and whether the JP7 `JetsonIO` entry's
 `imx219-dual` overlay was the only camera consumer (it was: no `/dev/video*`
 existed before, the imx219 probes fail without hardware).
+
+## 6. JetPack 7 NITO policy (found 2026-09-16, first Argus run)
+
+The R39 daemon aborts ISP init for our module:
+
+```
+Error: NvCameraIspInitialize: NvCameraIspGetNitoPathIfEnabled() returned error
+| NITO file is made the default in this Jetpack release.            |
+| User is expected to provide a NITO file for the camera module in  |
+| the directory /var/nvidia/nvcam/settings ...                      |
+| If the NITO file is not supported, you can still use the legacy   |
+| Configuration file ... $ export NVCAMERA_NITO_PATH=CONFIG          |
+```
+
+JP6 used the legacy configuration path unconditionally; JP7 requires a
+per-module binary `.nito` (made with NVIDIA's Camera Partner Toolkit, which
+we do not have) unless the daemon is told otherwise. Fix: systemd drop-in
+`deploy/nvargus-daemon-legacy-isp.conf` → `/etc/systemd/system/
+nvargus-daemon.service.d/10-legacy-isp-config.conf` setting
+`Environment=NVCAMERA_NITO_PATH=CONFIG` (installer step 6/6). Our
+`camera_overrides.isp` is an *override* on top of that legacy config, as on
+JP6. The daemon does log "Found override file [...camera_overrides.isp]"
+on R39, so the text override format itself is still consumed; whether every
+key we use is still accepted is checked after the first successful run
+(`journalctl -u nvargus-daemon | grep -c "Invalid isp config"`, was 0 so far
+but the parser had not reached our keys before the NITO abort).

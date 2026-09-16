@@ -4,7 +4,9 @@
 # Run ON THE TARGET, from this directory:
 #   sudo ./install_on_target.sh
 #
-# Installs nv_imx415.ko + the DT overlay + the Argus ISP tuning and adds an
+# Installs nv_imx415.ko + the DT overlay + the Argus ISP tuning (+ the
+# systemd drop-in that keeps nvargus in legacy ISP-config mode, see
+# nvargus-daemon-legacy-isp.conf) and adds an
 # 'imx415' boot entry cloned from the current DEFAULT entry (normally
 # 'JetsonIO' on JetPack 7, 'primary' as fallback): the stock camera
 # overlays (imx219/imx477) are dropped from OVERLAYS, ours is added, and an
@@ -32,17 +34,17 @@ if [ "$(uname -r)" != "$KVER_EXPECTED" ]; then
 fi
 sha1sum -c checksums.sha1
 
-echo "==> 1/5 backing up $EXTLINUX"
+echo "==> 1/6 backing up $EXTLINUX"
 cp -v "$EXTLINUX" "$EXTLINUX.bak-imx415-$(date +%Y%m%d%H%M%S)"
 
-echo "==> 2/5 installing kernel module to $MODDIR"
+echo "==> 2/6 installing kernel module to $MODDIR"
 install -v -D -m 0644 "$KO" "$MODDIR/$KO"
 depmod -a
 
-echo "==> 3/5 installing overlay to /boot"
+echo "==> 3/6 installing overlay to /boot"
 install -v -m 0644 "$DTBO" "/boot/$DTBO"
 
-echo "==> 4/5 adding 'imx415' boot entry"
+echo "==> 4/6 adding 'imx415' boot entry"
 if grep -qE '^LABEL[[:space:]]+imx415[[:space:]]*$' "$EXTLINUX"; then
 	echo "LABEL imx415 already present - leaving $EXTLINUX unchanged"
 else
@@ -121,7 +123,7 @@ else
 	sed -n '/^LABEL imx415/,$p' "$EXTLINUX"
 fi
 
-echo "==> 5/5 installing ISP tuning override to $NVCAM"
+echo "==> 5/6 installing ISP tuning override to $NVCAM"
 if [ -f "$ISP" ]; then
 	mkdir -p "$NVCAM"
 	# don't silently clobber someone else's tuning (e.g. an IMX219 fix)
@@ -134,6 +136,24 @@ if [ -f "$ISP" ]; then
 		|| echo "(nvargus-daemon not running - tuning applies on next start)"
 else
 	echo "(no $ISP in this deploy dir - skipping)"
+fi
+
+echo "==> 6/6 nvargus-daemon: legacy ISP configuration mode (JetPack 7 NITO policy)"
+DROPIN_DIR=/etc/systemd/system/nvargus-daemon.service.d
+DROPIN=$DROPIN_DIR/10-legacy-isp-config.conf
+if [ -f nvargus-daemon-legacy-isp.conf ]; then
+	if [ -f "$DROPIN" ] && cmp -s nvargus-daemon-legacy-isp.conf "$DROPIN"; then
+		echo "$DROPIN already in place"
+	else
+		mkdir -p "$DROPIN_DIR"
+		install -v -m 0644 nvargus-daemon-legacy-isp.conf "$DROPIN"
+		systemctl daemon-reload
+		systemctl restart nvargus-daemon 2>/dev/null \
+			&& echo "nvargus-daemon restarted with NVCAMERA_NITO_PATH=CONFIG" \
+			|| echo "(nvargus-daemon not running - applies on next start)"
+	fi
+else
+	echo "(no nvargus-daemon-legacy-isp.conf in this deploy dir - skipping)"
 fi
 
 echo
