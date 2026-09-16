@@ -1,5 +1,5 @@
 a21723d924c3404b4cb547244064b42f8fd63b28  nv_imx415.ko
 1c0a9101a1dfc60c2c47af9795e61ce210337a2b  tegra234-p3767-camera-p3768-imx415.dtbo
 fa4d34a75017375327139f21b721c3aa918ba0b2  camera_overrides.isp
-6a37446031629f92d836482e54d942ec3225e65a  nvargus-daemon-legacy-isp.conf
+b61efa7b1c24d6c1898b75cd02a001ddf4427732  nvargus-daemon-legacy-isp.conf
 d8a81b762770aa1a27d792b4b910de819da25b9b  install_on_target.sh

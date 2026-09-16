@@ -165,10 +165,20 @@ per-module binary `.nito` (made with NVIDIA's Camera Partner Toolkit, which
 we do not have) unless the daemon is told otherwise. Fix: systemd drop-in
 `deploy/nvargus-daemon-legacy-isp.conf` → `/etc/systemd/system/
 nvargus-daemon.service.d/10-legacy-isp-config.conf` setting
-`Environment=NVCAMERA_NITO_PATH=CONFIG` plus `Environment=HOME=/root` — in
-CONFIG mode the daemon next fails with "Environmental variable HOME is not
-found / NvCameraIspSetNitoDumpEnvironmentVariable failed" (installer step
-6/6). Our
+`Environment=NVCAMERA_NITO_PATH=...` plus `Environment=HOME=/root` (installer
+step 6/6). **`=CONFIG` turned out to be a dead end on R39.2.1** (tested
+15:31): with HOME set the daemon dumps the merged legacy config to
+`/root/binary.cfg`, then prints "legacy way of using text based
+configuration file by setting NVCAMERA_NITO_PATH=CONFIG is not allowed
+anymore" and aborts — the dump is meant to be converted to a NITO on a
+Windows host with NVIDIA's Camera Partner Toolkit (not public; nothing on
+the device converts it: only `nvtunerd`, `libnvcameratools`,
+`nvargus_nvraw`). Each stock NITO embeds its module Part# (`RBP194` in
+imx219.nito, `RBPCV3` in imx477.nito, `liimx185`, `P5V27C`) and the daemon
+logs `nito file %s found. Badge "%s" SensorModel "%s" Modulename "%s"`
+when it resolves one by name. Current stand-in: an explicit
+`NVCAMERA_NITO_PATH=/var/nvidia/nvcam/settings/imx219.nito` (closest
+shipped sensor: Sony, 10-bit, pedestal 64). Our
 `camera_overrides.isp` is an *override* on top of that legacy config, as on
 JP6. The daemon does log "Found override file [...camera_overrides.isp]"
 on R39, so the text override format itself is still consumed; whether every
