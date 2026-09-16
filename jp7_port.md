@@ -202,7 +202,12 @@ incandescent/warm-fluorescent presets (R/G 0.69, B/G 0.79). The raw frame
 from `nvargus_nvraw` (16-bit left-aligned, pedestal 60/1023) has R/G 0.545,
 B/G 0.340, i.e. neutral needs ~1.8x R / ~2.9x B; the ISP applied ~1.6x /
 ~2.0x. So AWB under-corrects a very warm scene; the CUDA path on the same
-wall (own AWB, 1.88x / 3.70x) renders neutral grey. Not yet known whether
+wall (own AWB, 1.88x / 3.70x) renders neutral grey. **Resolved 15:49 (root test, override file moved away): the cast comes
+from our v3 `camera_overrides.isp`** — without it the same wall is
+neutral (R/G 1.00, B/G 0.97) but milky (lifted shadows = un-subtracted
+pedestal). `tuning/camera_overrides.isp` v4-jp7 = pedestal only, matrix
+disabled (see `tuning/README.md`). Earlier text kept for the record: not
+yet known whether
 this is a JP7 difference (JP6 v2/v3 were judged by eye on a different
 warm-LED scene as "correct warm tint") or an AWB gain/CCT limit of the
 legacy default config for an unmapped module (`NvPclHwGetModuleList:

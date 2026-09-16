@@ -22,6 +22,17 @@
 # subtraction the constant offset passes WB+CCM and lifts shadows into a
 # purple haze. int values are 10-bit LSBs (mode0); floats = 60/1023 and
 # should govern in both bit depths.
+#* ---------------------------------------------------------------------
+#* v4-jp7 (2026-09-16, branch JP7, L4T R39.2.1 + camera hotfix):
+#* PEDESTAL ONLY. The v3 saturation matrix (colorCorrection.srgbMatrix,
+#* kept below, commented out) turns a neutral wall yellow-green on the
+#* R39 daemon: mean RGB 106/122/83 with it, 106/106/103 without it, same
+#* scene, same light, measured via nvvidconv RGBA (so not the JPEG path).
+#* Without any override R39 is neutral but milky (lifted grey shadows) -
+#* the same under-subtracted pedestal JP6 v1 fixed - so the opticalBlack
+#* block stays. Saturation on JP7: use nvarguscamerasrc saturation=1.4 at
+#* runtime, or a NITO-level tuning later. JP6 (branch main) keeps v3.
+#* ---------------------------------------------------------------------
 opticalBlack.manualBiasR   = 60;
 opticalBlack.manualBiasGR  = 60;
 opticalBlack.manualBiasGB  = 60;
@@ -46,9 +57,9 @@ opticalBlack.float.manualBiasB  = 0.05865103;
 #     chroma; regenerate via M = s*I+(1-s)*W, transpose, columns sum 1.
 # RPi source CTs if real CCMs get revisited (needs the awb.* curve
 # derived first): 2698, 2930, 3643, 4605, 5658 K.
-colorCorrection.srgbMatrix[0] = { 1.28040000,-0.11960000,-0.11960000};
-colorCorrection.srgbMatrix[1] = {-0.23480000, 1.16520000,-0.23480000};
-colorCorrection.srgbMatrix[2] = {-0.04560000,-0.04560000, 1.35440000};
+#JP7-disabled# colorCorrection.srgbMatrix[0] = { 1.28040000,-0.11960000,-0.11960000};
+#JP7-disabled# colorCorrection.srgbMatrix[1] = {-0.23480000, 1.16520000,-0.23480000};
+#JP7-disabled# colorCorrection.srgbMatrix[2] = {-0.04560000,-0.04560000, 1.35440000};
 
 # Deliberately NOT set in v1 (daemon defaults apply):
 # - awb.* calibration curve: default AWB found neutral OK in test snaps;
