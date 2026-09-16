@@ -184,6 +184,32 @@ What the branch ships for it:
 | `deploy/nvargus-daemon-nito.conf` | drop-in for native NITO mode (`NVCAMERA_NITO_DUMP_PATH=0`) |
 | `tools/nito_migrate.sh` | `capture` (no root): one Argus capture per sensor mode → `/root/jakku_rear_IMX415.nito` knobsets 0+1; `install` (sudo): copy it to `/var/nvidia/nvcam/settings`, keep a copy in `deploy/`, switch the drop-in to NITO mode; `revert` |
 
+**Argus/ISP VALIDATED on JP7 (2026-09-16 15:41, hotfix installed):**
+`argus_check.sh fps` = 30.10 fps through the ISP at 3864x2192, the daemon
+logs "Found override file", **0 `Invalid isp config` rejections** (the R39
+parser accepts every key of our v3 file), the cfg dump names the module
+from our badge (`Set moduleName to "jakku_rear_IMX415" from Badge`). One
+harmless warning during the dump: `AnalogGain 1000.00 is out of range
+[0, 128]; clamping to 128` (the 72 dB range exceeds the NITO knob's max).
+Installer bug found on this run: `/usr/sbin/nvcfg2nito` landed without the
+execute bit (fixed in commit 6c78892; `chmod 755` on an existing install).
+
+**Colour observation (open):** the ISP output of a neutral wall under warm
+LED light is yellow-green, mean RGB 106/122/83 (R/G 0.87, B/G 0.69),
+identical via nvjpegenc and via nvvidconv RGBA, identical with
+`wbmode=0` (off) and auto, and only mildly different with the
+incandescent/warm-fluorescent presets (R/G 0.69, B/G 0.79). The raw frame
+from `nvargus_nvraw` (16-bit left-aligned, pedestal 60/1023) has R/G 0.545,
+B/G 0.340, i.e. neutral needs ~1.8x R / ~2.9x B; the ISP applied ~1.6x /
+~2.0x. So AWB under-corrects a very warm scene; the CUDA path on the same
+wall (own AWB, 1.88x / 3.70x) renders neutral grey. Not yet known whether
+this is a JP7 difference (JP6 v2/v3 were judged by eye on a different
+warm-LED scene as "correct warm tint") or an AWB gain/CCT limit of the
+legacy default config for an unmapped module (`NvPclHwGetModuleList:
+Could not map module to ISP config string`). Next experiments: same snap
+with `camera_overrides.isp` moved away (root), and after the NITO
+migration (template.nito may carry a different AWB calibration).
+
 Order on a fresh JP7 target: `install_on_target.sh` → reboot →
 `install_camera_hotfix.sh` → `argus_check.sh` works (CONFIG mode) →
 `nito_migrate.sh capture` → `sudo nito_migrate.sh install` → native NITO.
