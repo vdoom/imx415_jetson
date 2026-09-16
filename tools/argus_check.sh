@@ -78,7 +78,10 @@ view)
 	daemon_fresh
 	if [ ! -e /dev/video10 ]; then
 		echo "== loading v4l2loopback (video10) =="
-		sudo modprobe v4l2loopback video_nr=10 exclusive_caps=1 || exit 1
+		# no exclusive_caps: v4l2loopback 0.12.7 on the 6.8 kernel (JP7)
+		# reports NO output capability with it set -> v4l2sink refuses
+		# the device ("is not a output device", 2026-09-16)
+		sudo modprobe v4l2loopback video_nr=10 card_label="IMX415" || exit 1
 	fi
 	echo "== ISP -> /dev/video10; view with: ustreamer -d /dev/video10 (browser :8080) =="
 	echo "== Ctrl-C stops it =="

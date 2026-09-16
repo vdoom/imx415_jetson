@@ -72,10 +72,17 @@ One-time setup:
 ```bash
 sudo apt install v4l2loopback-dkms ustreamer
 echo v4l2loopback | sudo tee /etc/modules-load.d/v4l2loopback.conf
-echo 'options v4l2loopback video_nr=10 card_label="IMX415" exclusive_caps=1' \
+echo 'options v4l2loopback video_nr=10 card_label="IMX415"' \
   | sudo tee /etc/modprobe.d/v4l2loopback.conf
-sudo modprobe v4l2loopback video_nr=10 card_label="IMX415" exclusive_caps=1
+sudo modprobe v4l2loopback video_nr=10 card_label="IMX415"
 ```
+
+JP7 note: do **not** add `exclusive_caps=1` on JetPack 7 - the Ubuntu 24.04
+v4l2loopback 0.12.7 built against the 6.8 kernel then exposes neither the
+capture nor the output capability and every producer fails with "Device
+'/dev/video10' is not a output device" (JP6/5.15 was fine with it). The
+only downside without it: the loopback shows up as a camera in app lists
+even while no producer feeds it.
 
 Then:
 
@@ -91,8 +98,8 @@ cheese                                             # start AFTER the producer; k
 ffplay /dev/video10 · vlc v4l2:///dev/video10 · OpenCV VideoCapture(10)
 ```
 
-With `exclusive_caps=1` the loopback is a camera **only while a producer
-feeds it** — start the producer first, launch the viewer app fresh after.
+Start the producer first, then launch the viewer app fresh (on JP6 with
+`exclusive_caps=1` the loopback is a camera only while a producer feeds it).
 
 ## IR-CUT (shared by both paths)
 
