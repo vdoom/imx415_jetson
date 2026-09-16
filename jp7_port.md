@@ -10,7 +10,10 @@ on JP7.** With `DEFAULT imx415` the overlay is live (gain max 72000, lens
 node), `nv_imx415` binds `9-0037`, the media graph links sensor → nvcsi →
 vi, GB10 and GB12 enumerate at 3864x2192@30 and both stream at a flat
 30.00 fps; the exposure/gain ladder (1 ms/0 dB → 33 ms/15 dB → 1 ms/0 dB)
-gives means 50.6 → 173.7 → 50.6, i.e. the JP6 numbers. **Argus/ISP path:
+gives means 50.6 → 173.7 → 50.6, i.e. the JP6 numbers. **CUDA debayer path
+VALIDATED on JP7 (CUDA 13.2, 15:08):** `--ae` run and `--snap` at 29.99 fps,
+1.75 ms/frame kernel, zero-copy, AE converged (33 ms / 9.6 dB), AWB 4010 K,
+snapshot user-confirmed working. **Argus/ISP path:
 blocked by a JP7 policy change** (§6) — fix shipped in `deploy/`, needs one
 more sudo step.
 
