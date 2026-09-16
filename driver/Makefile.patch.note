@@ -1,1 +1,4 @@
-17:obj-m += nv_imx415.o
+Add after the nv_imx219 line of drivers/media/i2c/Makefile in the OOT tree
+(inside "ifdef CONFIG_MEDIA_SUPPORT"; r36.5.0: line 17, r38/r39: line ~28):
+
+obj-m += nv_imx415.o

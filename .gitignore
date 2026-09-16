@@ -1,1 +1,12 @@
 *.raw
+# standalone driver build outputs (driver/Makefile); deploy/ keeps its tracked .ko
+driver/*.o
+driver/*.ko
+driver/*.mod
+driver/*.mod.c
+driver/.*.cmd
+driver/Module.symvers
+driver/modules.order
+driver/include/
+# standalone overlay build output (dt/Makefile); deploy/ keeps its tracked .dtbo
+dt/*.dtbo

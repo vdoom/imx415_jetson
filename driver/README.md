@@ -1,5 +1,47 @@
 # nv_imx415 driver sources (Phase D)
 
+## JetPack 7.2 / L4T R39.2.1 (branch `JP7`, 2026-09-16)
+
+Builds **standalone on the target** (kernel `6.8.12-1021-tegra`) — no
+nvidia-oot sources exist on JP7, only headers in
+`/usr/src/nvidia/nvidia-public`. Recipe:
+
+```bash
+make            # conftest.sh -> include/nvidia/conftest.h, then Kbuild M= build
+make check      # + modcheck.sh: vermagic and modversion CRCs vs kernel + tegra-camera
+```
+
+- `Makefile` — Kbuild + driver targets; `KDIR=`/`NV_OOT=` overridable.
+- `conftest.sh` — regenerates the `<nvidia/conftest.h>` NVIDIA's headers
+  need, by compiling probe snippets with the kernel's own flags. On this
+  kernel: probe-without-id **present**, remove-returns-int **absent**,
+  v4l2_async_connection **present**, **`NV_TEGRA_PMC_IO_PAD_POWER_ENABLE_PRESENT`
+  present** — that last one adds a `pmc` member to
+  `struct camera_common_data`, i.e. it changes the layout of a struct shared
+  with the prebuilt `tegra-camera.ko`; the 6.8 L4T kernel backports the
+  "Linux 7.0" API, so it must be defined. Never hand-edit the header.
+- `modcheck.sh` — root-free ground truth: every imported symbol's modversion
+  CRC must equal the exporter's (`Module.symvers` of the kernel and of
+  nvidia-public). The CRC hashes the full type expansion of each prototype,
+  so a wrong conftest guess shows up here as a mismatch, not as memory
+  corruption after modprobe. **Result 2026-09-16: PASS, 42/42 CRC-exact**,
+  vermagic `6.8.12-1021-tegra SMP preempt mod_unload modversions aarch64`.
+- Source delta vs `main`: only the unused OOT-relative
+  `#include "../platform/tegra/camera/camera_gpio.h"` is gone. The public
+  R38.4 `nv_imx219.c` confirms NVIDIA's driver of this generation uses the
+  same legacy gpio API and the same conftest macros; the tegracam quirks the
+  `override_enable`/frame-rate workarounds below address are still present
+  in the R38.4 framework sources, so both workarounds stay.
+- `deploy/nv_imx415.ko` on this branch = sha1 `a21723d9` (JP7). **Not yet
+  loaded on hardware** — see `../jp7_port.md` §5.
+
+The in-BSP-tree route (`Makefile.patch.note`) remains valid for R39 (add the
+obj-m line next to nv_imx219's in `drivers/media/i2c/Makefile`).
+
+---
+
+## JetPack 6.2.2 record (unchanged below)
+
 **Written 2026-07-07** on the build host. These are the canonical versioned
 copies; the build happens in the BSP tree at
 `~/nvidia/nvidia_sdk/JetPack_6.2.2_Linux_JETSON_ORIN_NANO_TARGETS/Linux_for_Tegra/source/nvidia-oot/drivers/media/i2c/`
