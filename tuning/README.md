@@ -106,6 +106,16 @@ target) only if the stock imx219 boot entry is ever used again.
 
 ## Follow-up ideas (in priority order, all optional)
 
+- **TODO (JP7, 2026-09-16): fix the AWB tint under warm light.** With the
+  correct pedestal the ISP under-corrects very warm LED light (needs ~1.8x
+  R / ~2.9x B, applies ~1.65x / ~2.2x → R/G 0.89, B/G 0.74 on a neutral
+  wall; the CUDA path neutralises the same scene). Levers: the `awb.*`
+  keys the daemon accepts (`awb.GrayLine*`, `awb.{High,Low}U`,
+  `awb.{UtoMIRED,MIREDtoU,UtoCCT,CCTtoU}`) — widen the gain/CCT range or
+  derive the gray-line from the RPi `ct_curve`; then regenerate the NITO
+  (`deploy/install_camera_hotfix.sh` → CONFIG mode → `tools/nito_migrate.sh
+  capture` / `install`). Measure with `nvvidconv` RGBA means, not JPEG.
+
 - AWB calibration curve from the RPi `ct_curve` if casts show up under
   incandescent/daylight extremes (needs conversion into NVIDIA's U-space
   gray-line parametrization — nontrivial, derive only if needed).

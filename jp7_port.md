@@ -239,3 +239,10 @@ still applied on top of a NITO (the daemon logs "Found override file"
 before resolving the NITO); if not, the converted NITO already contains
 the override values (the cfg dump is the merged config), which is the
 point of the migration.
+
+## 7. Open TODO
+
+- **Fix the AWB tint under warm light** (Argus/ISP): see `tuning/README.md`
+  "Follow-up ideas", first item. Not a JP7 regression per se (the AWB gain
+  cap of the default calibration), but visible now that the black level is
+  correct.
