@@ -5,8 +5,8 @@ Port of the validated JetPack 6.2.2 bring-up (branch `main`) to
 Ubuntu 24.04). Done natively on the target — this branch was built on the
 Jetson itself, not cross-built on an x86 host.
 
-**Status (2026-09-16 15:05): installed, booted, raw V4L2 path VALIDATED
-on JP7.** With `DEFAULT imx415` the overlay is live (gain max 72000, lens
+**Status (2026-09-16 16:00): installed, booted, ALL THREE PATHS VALIDATED
+on JP7 — raw V4L2, CUDA debayer, Argus/ISP (native NITO tuning).** With `DEFAULT imx415` the overlay is live (gain max 72000, lens
 node), `nv_imx415` binds `9-0037`, the media graph links sensor → nvcsi →
 vi, GB10 and GB12 enumerate at 3864x2192@30 and both stream at a flat
 30.00 fps; the exposure/gain ladder (1 ms/0 dB → 33 ms/15 dB → 1 ms/0 dB)
@@ -215,9 +215,25 @@ Could not map module to ISP config string`). Next experiments: same snap
 with `camera_overrides.isp` moved away (root), and after the NITO
 migration (template.nito may carry a different AWB calibration).
 
+**NITO migration DONE (15:56–15:58).** `nito_migrate.sh capture` produced
+`/root/jakku_rear_IMX415.nito` with knobsets 0 and 1 (v4-jp7 pedestal
+baked in); `install` copied it to `/var/nvidia/nvcam/settings/` and to
+`deploy/`, and switched the drop-in to native NITO mode. Daemon log:
+every stock NITO is rejected as a badge mismatch (`imx219.nito ... Badge
+"jakku_rear_IMX415" ... Modulename "RBP194"`), then `nito file
+/var/nvidia/nvcam/settings/jakku_rear_IMX415.nito found`; mode 0 loads
+knobset 0, switching to sensor mode 1 loads knobset 1 ("Mode switch -
+sensorModeIndex 1"); both stream at 30.1–30.2 fps through the ISP. Colour
+in NITO mode = the v4 CONFIG result (R/G 0.89, B/G 0.74 under the warm
+LED, dark luma 39). `deploy/jakku_rear_IMX415.nito` is now shipped and
+`install_on_target.sh` step 6 installs it + the NITO drop-in, so a fresh
+JP7 target needs neither the hotfix nor the migration unless the tuning
+changes (then: hotfix → CONFIG mode → capture → install again).
+
 Order on a fresh JP7 target: `install_on_target.sh` → reboot →
-`install_camera_hotfix.sh` → `argus_check.sh` works (CONFIG mode) →
-`nito_migrate.sh capture` → `sudo nito_migrate.sh install` → native NITO.
+Argus works in native NITO mode. Regenerating the NITO after a tuning
+change: `install_camera_hotfix.sh` → `argus_check.sh` (CONFIG mode) →
+`nito_migrate.sh capture` → `sudo nito_migrate.sh install`.
 Open question for after the migration: whether `camera_overrides.isp` is
 still applied on top of a NITO (the daemon logs "Found override file"
 before resolving the NITO); if not, the converted NITO already contains

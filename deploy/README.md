@@ -11,7 +11,11 @@ sudo; steps in `../jp7_port.md` §5. The installer now expects kernel
 `primary` + an FDT line), dropping the stock imx219/imx477 overlays.
 `2lane-15fps-backup/` (JP6-only 5.15 binaries) is not on this branch.
 
-**Argus on JP7 needs two more pieces** (raw V4L2 and the CUDA path do not):
+**Argus on JP7 = native NITO mode:** `jakku_rear_IMX415.nito` (generated
+2026-09-16 from the legacy config + v4-jp7 overrides, knobsets for modes
+0 and 1) is installed by step 6 together with `nvargus-daemon-nito.conf`.
+Validated: both modes 30.1 fps through the ISP. Only to REGENERATE it
+(after a tuning change) are two more pieces needed:
 `sudo ./install_camera_hotfix.sh` installs NVIDIA's public JetPack 7.2.1
 camera hotfix (R39 otherwise refuses to run the ISP without a per-module
 NITO file, and refuses the legacy config mode too) plus the

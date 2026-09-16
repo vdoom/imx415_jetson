@@ -9,8 +9,10 @@ x86 host against the exact target BSP and validated on the device.
 > **Branch `JP7` = JetPack 7.2 / L4T R39.2.1 (kernel 6.8.12-tegra).**
 > Same driver, byte-identical overlay, built natively on the target with
 > standalone Makefiles (no BSP tree needed) and ground-truth-checked
-> against the installed kernel. Install/boot validation is pending (needs
-> sudo). Everything JP7-specific is in [jp7_port.md](jp7_port.md);
+> against the installed kernel; installed, booted and validated on the
+> device 2026-09-16: raw V4L2, CUDA debayer and Argus/ISP (JP7 requires a
+> NITO tuning file — generated and shipped). Everything JP7-specific is in
+> [jp7_port.md](jp7_port.md);
 > the rest of this documentation is the JP6 record and still applies.
 
 ## What works (all target-validated)
