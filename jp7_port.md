@@ -240,6 +240,11 @@ before resolving the NITO); if not, the converted NITO already contains
 the override values (the cfg dump is the merged config), which is the
 point of the migration.
 
+**Loopback bridge VALIDATED on JP7 (16:10):** Argus/ISP → `argus_check.sh
+view` → `/dev/video10` → `ustreamer` in a browser, user-confirmed. Needs
+the loopback module loaded WITHOUT `exclusive_caps=1` (v4l2loopback
+0.12.7 on 6.8 exposes no output capability with it; see `USAGE.md`).
+
 ## 7. Open TODO
 
 - **Fix the AWB tint under warm light** (Argus/ISP): see `tuning/README.md`
