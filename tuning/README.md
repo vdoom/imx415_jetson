@@ -18,10 +18,12 @@ with NVIDIA's default tuning:
 ## Schema ground truth (JP6.2.2, R36.5.0)
 
 > JetPack 7 note (branch `JP7`): the R39 daemon defaults to binary NITO
-> tuning and refuses to start the ISP without a `.nito` for the module;
-> `deploy/` ships a systemd drop-in (`NVCAMERA_NITO_PATH=CONFIG`) that
-> returns it to the legacy config + this override file (see
-> `../jp7_port.md` §6). The accepted/rejected table below was
+> tuning and refuses to start the ISP without a `.nito` for the module.
+> With NVIDIA's JP 7.2.1 camera hotfix (`deploy/install_camera_hotfix.sh`)
+> the `NVCAMERA_NITO_PATH=CONFIG` drop-in returns it to the legacy config +
+> this override file AND auto-converts the result into
+> `jakku_rear_IMX415.nito` (`tools/nito_migrate.sh`); see
+> `../jp7_port.md` §6. The accepted/rejected table below was
 > measured against the R36.5.0 nvargus daemon. The R39.2.1 daemon has not
 > been checked yet - after the first `argus_check.sh` run on JP7, grep the
 > journal for `Invalid isp config attribute` (must be 0 for our file) and

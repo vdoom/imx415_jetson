@@ -147,41 +147,48 @@ isp config"` must stay 0), and whether the JP7 `JetsonIO` entry's
 `imx219-dual` overlay was the only camera consumer (it was: no `/dev/video*`
 existed before, the imx219 probes fail without hardware).
 
-## 6. JetPack 7 NITO policy (found 2026-09-16, first Argus run)
+## 6. JetPack 7 NITO policy — and the way through it (2026-09-16)
 
-The R39 daemon aborts ISP init for our module:
+R39 makes a per-module binary **NITO** tuning file mandatory for Argus.
+Sequence of findings on this target:
 
-```
-Error: NvCameraIspInitialize: NvCameraIspGetNitoPathIfEnabled() returned error
-| NITO file is made the default in this Jetpack release.            |
-| User is expected to provide a NITO file for the camera module in  |
-| the directory /var/nvidia/nvcam/settings ...                      |
-| If the NITO file is not supported, you can still use the legacy   |
-| Configuration file ... $ export NVCAMERA_NITO_PATH=CONFIG          |
-```
+1. Stock daemon, no NITO: `NvCameraIspGetNitoPathIfEnabled() returned
+   error` — ISP init aborts.
+2. `NVCAMERA_NITO_PATH=CONFIG` (NVIDIA's documented legacy switch) + `HOME`
+   in the service env: the daemon dumps the merged legacy config to
+   `/root/binary.cfg`, then refuses: "legacy way of using text based
+   configuration file ... is not allowed anymore", convert on a Windows
+   host. Forum threads confirm this is R39.2's state for every custom
+   sensor (NVIDIA: converter "only released to partners"), and that the
+   daemon logs `nito file %s found. Badge "%s" SensorModel "%s"
+   Modulename "%s"` — NITOs are matched by module badge, each stock file
+   embeds one (`RBP194`, `RBPCV3`, `liimx185`, `P5V27C`).
+3. **Public fix (NVIDIA, JetPack 7.2.1 download archive, "Jetson Customer
+   IQ Migration Tools", zip sha256 `15976d2e…`, guide DA_12680-001 v3.0):**
+   a *camera hotfix* tarball for R39.2.1 with a patched `libnvscf.so`, an
+   aarch64 `/usr/sbin/nvcfg2nito` + tuning library, `template.nito` and
+   refreshed stock NITOs. With it, `NVCAMERA_NITO_PATH=CONFIG` works again
+   and *auto-converts*: each Argus capture in sensor mode n dumps
+   `/root/binary_n.cfg` and runs `nvcfg2nito -t libnvm_cam_tuning_l4t_cfg2nito.so
+   -s template.nito|previous.nito -i binary_n.cfg -o /root/<badge>.nito -k n`;
+   the daemon keeps running with the legacy config (built-in defaults +
+   `camera_overrides.isp`, i.e. the JP6 behavior). Verified here: the
+   converter runs on-device (both NVIDIA sample cfgs converted, exit 0).
 
-JP6 used the legacy configuration path unconditionally; JP7 requires a
-per-module binary `.nito` (made with NVIDIA's Camera Partner Toolkit, which
-we do not have) unless the daemon is told otherwise. Fix: systemd drop-in
-`deploy/nvargus-daemon-legacy-isp.conf` → `/etc/systemd/system/
-nvargus-daemon.service.d/10-legacy-isp-config.conf` setting
-`Environment=NVCAMERA_NITO_PATH=...` plus `Environment=HOME=/root` (installer
-step 6/6). **`=CONFIG` turned out to be a dead end on R39.2.1** (tested
-15:31): with HOME set the daemon dumps the merged legacy config to
-`/root/binary.cfg`, then prints "legacy way of using text based
-configuration file by setting NVCAMERA_NITO_PATH=CONFIG is not allowed
-anymore" and aborts — the dump is meant to be converted to a NITO on a
-Windows host with NVIDIA's Camera Partner Toolkit (not public; nothing on
-the device converts it: only `nvtunerd`, `libnvcameratools`,
-`nvargus_nvraw`). Each stock NITO embeds its module Part# (`RBP194` in
-imx219.nito, `RBPCV3` in imx477.nito, `liimx185`, `P5V27C`) and the daemon
-logs `nito file %s found. Badge "%s" SensorModel "%s" Modulename "%s"`
-when it resolves one by name. Current stand-in: an explicit
-`NVCAMERA_NITO_PATH=/var/nvidia/nvcam/settings/imx219.nito` (closest
-shipped sensor: Sony, 10-bit, pedestal 64). Our
-`camera_overrides.isp` is an *override* on top of that legacy config, as on
-JP6. The daemon does log "Found override file [...camera_overrides.isp]"
-on R39, so the text override format itself is still consumed; whether every
-key we use is still accepted is checked after the first successful run
-(`journalctl -u nvargus-daemon | grep -c "Invalid isp config"`, was 0 so far
-but the parser had not reached our keys before the NITO abort).
+What the branch ships for it:
+
+| file | role |
+|---|---|
+| `deploy/install_camera_hotfix.sh` | sudo; downloads NVIDIA's zip (pinned sha256; or `HOTFIX_ZIP=`), installs the tarball with a manifest + backups (`--restore` undoes it), installs the CONFIG drop-in, restarts the daemon |
+| `deploy/nvargus-daemon-legacy-isp.conf` | drop-in: `NVCAMERA_NITO_PATH=CONFIG`, `HOME=/root` |
+| `deploy/nvargus-daemon-nito.conf` | drop-in for native NITO mode (`NVCAMERA_NITO_DUMP_PATH=0`) |
+| `tools/nito_migrate.sh` | `capture` (no root): one Argus capture per sensor mode → `/root/jakku_rear_IMX415.nito` knobsets 0+1; `install` (sudo): copy it to `/var/nvidia/nvcam/settings`, keep a copy in `deploy/`, switch the drop-in to NITO mode; `revert` |
+
+Order on a fresh JP7 target: `install_on_target.sh` → reboot →
+`install_camera_hotfix.sh` → `argus_check.sh` works (CONFIG mode) →
+`nito_migrate.sh capture` → `sudo nito_migrate.sh install` → native NITO.
+Open question for after the migration: whether `camera_overrides.isp` is
+still applied on top of a NITO (the daemon logs "Found override file"
+before resolving the NITO); if not, the converted NITO already contains
+the override values (the cfg dump is the merged config), which is the
+point of the migration.

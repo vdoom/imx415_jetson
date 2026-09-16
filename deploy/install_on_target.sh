@@ -156,6 +156,12 @@ else
 	echo "(no nvargus-daemon-legacy-isp.conf in this deploy dir - skipping)"
 fi
 
+if [ ! -x /usr/sbin/nvcfg2nito ]; then
+	echo "NOTE: NVIDIA's JetPack 7.2.1 camera hotfix is not installed - the stock"
+	echo "      daemon refuses CONFIG mode, so Argus will NOT start until you run:"
+	echo "        sudo ./install_camera_hotfix.sh"
+fi
+
 echo
 echo "Done. Next steps:"
 echo "  1. sudo reboot - pick 'imx415' in the boot menu on the serial console"
@@ -163,5 +169,7 @@ echo "     (or set 'DEFAULT imx415' in $EXTLINUX once validated)."
 echo "  2. dmesg | grep -iE 'imx415|tegracam' ; ls /dev/video*   (module autoloads"
 echo "     from the DT compatible; 'sudo modprobe nv_imx415' if it did not)"
 echo "  3. tools/expo_gain_check.sh, tools/argus_check.sh, tools/gain72_check.sh"
+echo "     Argus on JP7 needs the camera hotfix (sudo ./install_camera_hotfix.sh),"
+echo "     then tools/nito_migrate.sh generates the native IMX415 NITO."
 echo "  4. Optional autoload insurance:"
 echo "     echo nv_imx415 | sudo tee /etc/modules-load.d/imx415.conf"
