@@ -165,7 +165,10 @@ per-module binary `.nito` (made with NVIDIA's Camera Partner Toolkit, which
 we do not have) unless the daemon is told otherwise. Fix: systemd drop-in
 `deploy/nvargus-daemon-legacy-isp.conf` → `/etc/systemd/system/
 nvargus-daemon.service.d/10-legacy-isp-config.conf` setting
-`Environment=NVCAMERA_NITO_PATH=CONFIG` (installer step 6/6). Our
+`Environment=NVCAMERA_NITO_PATH=CONFIG` plus `Environment=HOME=/root` — in
+CONFIG mode the daemon next fails with "Environmental variable HOME is not
+found / NvCameraIspSetNitoDumpEnvironmentVariable failed" (installer step
+6/6). Our
 `camera_overrides.isp` is an *override* on top of that legacy config, as on
 JP6. The daemon does log "Found override file [...camera_overrides.isp]"
 on R39, so the text override format itself is still consumed; whether every
