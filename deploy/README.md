@@ -1,3 +1,20 @@
+# Deploy package — JetPack 7.2 / L4T R39.2.1 (branch `JP7`, rebuilt 2026-09-16)
+
+**JP7 state:** `nv_imx415.ko` sha1 `a21723d9`, vermagic
+`6.8.12-1021-tegra SMP preempt mod_unload modversions aarch64`, built natively
+on the target and modversion-CRC-verified against the installed kernel and
+`tegra-camera.ko` (`driver/modcheck.sh`: 42/42). The dtbo is byte-identical
+to the JP6 one (sha1 `1c0a9101`) and applies cleanly to the R39 base DTB.
+ISP tuning unchanged (v3). **Not yet installed/booted on JP7** — that needs
+sudo; steps in `../jp7_port.md` §5. The installer now expects kernel
+`6.8.12-1021-tegra` and clones the DEFAULT extlinux entry (`JetsonIO`, or
+`primary` + an FDT line), dropping the stock imx219/imx477 overlays.
+`2lane-15fps-backup/` (JP6-only 5.15 binaries) is not on this branch.
+
+Everything below is the JP6 record; the validation commands still apply.
+
+---
+
 # Deploy package (Phase F) — built 2026-07-07; ko + dtbo rebuilt 2026-07-13 (72 dB gain)
 
 **72 dB gain update (2026-07-13, ko sha1 5cea9ce1, dtbo sha1 1c0a9101):**
@@ -46,14 +63,16 @@ cd ~/imx415_deploy
 sudo ./install_on_target.sh
 ```
 
-The installer: verifies the running kernel is `5.15.185-tegra` and the file
-checksums; backs up `extlinux.conf` (timestamped); puts the module into
-`/lib/modules/5.15.185-tegra/updates/drivers/media/i2c/` + `depmod -a`; copies
-the dtbo to `/boot/`; appends a new `LABEL imx415` boot entry cloned from
-`UARTFix` with `imx219-dual.dtbo` removed and our overlay added. It does
-**not** touch the `DEFAULT` line or any existing entry — the old boot entries
-stay intact, so a bad overlay is recoverable by picking another entry at the
-boot menu (serial console).
+The installer: verifies the running kernel (`6.8.12-1021-tegra` on `JP7`;
+`5.15.185-tegra` on `main`) and the file checksums; backs up `extlinux.conf`
+(timestamped); puts the module into
+`/lib/modules/$(uname -r)/updates/drivers/media/i2c/` + `depmod -a`; copies
+the dtbo to `/boot/`; appends a new `LABEL imx415` boot entry cloned from the
+DEFAULT entry (`JetsonIO` on JP7; `UARTFix` was the JP6 source) with the stock
+camera overlays removed and ours added. It does **not** touch the `DEFAULT`
+line or any existing entry — the old boot entries stay intact, so a bad
+overlay is recoverable by picking another entry at the boot menu (serial
+console).
 
 ## First validation after reboot (Phase G, guide §7.3/§8.1)
 
