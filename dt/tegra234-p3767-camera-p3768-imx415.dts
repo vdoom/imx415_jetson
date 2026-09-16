@@ -1,7 +1,12 @@
 // SPDX-License-Identifier: GPL-2.0-only
 /*
  * Overlay for the Waveshare IMX415-98 camera (Sony IMX415) on the CAM1
- * 22-pin connector of the P3768 carrier board (Jetson Orin Nano devkit).
+ * 22-pin connector of the P3768 carrier board (Jetson Orin Nano / Orin NX
+ * devkits; the compatible list covers every P3767 module variant).
+ * Validated on JetPack 6.2.2 (L4T r36.5.0); rebuilt unchanged for
+ * JetPack 7.2 (L4T r39.2.1) - the stock r39 camera overlays keep the same
+ * node paths, labels and properties, only the build recipe differs (see
+ * Makefile / README.md).
  *
  * Adapted from tegra234-p3767-camera-p3768-imx219-C.dts (same connector,
  * same reset line PAC.00, same serial_c CSI routing). The module has its

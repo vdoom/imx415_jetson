@@ -1,5 +1,38 @@
 # IMX415 device tree overlay (Phase E)
 
+## JetPack 7.2 / L4T R39.2.1 (branch `JP7`, 2026-09-16)
+
+The overlay source is unchanged (header comment only). The R39 stock
+`imx219-C` overlay, decompiled from `/boot`, has the same node paths,
+labels (`gpio`, `gpio_aon`, `cam_i2c`, `pinmux`), properties and the same
+10-entry compatible list as the R36 donor, and the `extperiph2_clk_pp1` pin
+name exists in the 6.8 kernel image. Standalone build (no BSP tree):
+
+```bash
+make             # cpp + dtc -@ against the kernel's dt-bindings + include/ stand-in
+make check       # fdtoverlay onto /boot/dtb/kernel_tegra234-p3768-0000+p3767-*.dtb
+make decompile   # refresh imx415-overlay-decompiled.dts
+```
+
+- `include/dt-bindings/tegra234-p3767-0000-common.h` — stand-in for the
+  BSP-only header: the gpio binding includes plus `JETSON_COMPATIBLE_P3768`
+  (copied from the R39 stock overlay). In the BSP tree the real header wins.
+- Result: the JP7-built dtbo is **byte-identical** to the JP6 artifact
+  (sha1 `1c0a9101`), `imx415-overlay-decompiled.dts` diff = empty, and it
+  applies cleanly to the R39 base DTB. `deploy/` therefore carries the same
+  dtbo as before.
+- Deploy on JP7: `/boot/` + a boot entry cloned from `JetsonIO` (the
+  installer does it; no `UARTFix`/`disable-uart1-dma` on JP7). Module dir:
+  `/lib/modules/6.8.12-1021-tegra/updates/drivers/media/i2c/`.
+- Note valid on both JetPacks: the donor's `gpio@6000d000` hog node has no
+  counterpart in either base DTB, so the `cam1-pwdn`/`cam0-pwdn` hogs are
+  dead (gpioinfo: PH.06 and PAC.00 "unused"). Harmless, and it is what
+  lets the driver `gpio_request` PAC.00. Kept donor-identical.
+
+---
+
+## JetPack 6.2.2 record (unchanged below)
+
 **Written 2026-07-07.** Canonical versioned copies; the build lives in the BSP
 tree at `.../source/hardware/nvidia/t23x/nv-public/overlay/` (same .dts + one
 `dtbo-y` line in that dir's Makefile). Built artifact:
