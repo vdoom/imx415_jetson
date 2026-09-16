@@ -3,5 +3,5 @@ a21723d924c3404b4cb547244064b42f8fd63b28  nv_imx415.ko
 fa4d34a75017375327139f21b721c3aa918ba0b2  camera_overrides.isp
 52290ae069a00fb10adf610924eba4a8083df728  nvargus-daemon-legacy-isp.conf
 7089bacdb967f10ad427d9b7d0af0fa3c7b3543d  nvargus-daemon-nito.conf
-da5905617c1f56333b0cc87b6a7ef548754bc205  install_camera_hotfix.sh
+0fa0754d35d45a66958228edfb59a3113e2d6514  install_camera_hotfix.sh
 3947e6b1f2eb0298305c43a977c66621739a501a  install_on_target.sh

@@ -69,7 +69,7 @@ mkdir -p "$STATE/backup"
 : > "$STATE/manifest.new"
 while IFS= read -r -d '' f; do
 	rel=${f#"$WORK/fs"}
-	dest="/$rel"
+	dest="$rel"                          # rel already starts with /
 	mode=0644; case "$dest" in /usr/sbin/*) mode=0755;; esac
 	if [ -f "$dest" ]; then
 		if cmp -s "$f" "$dest"; then
