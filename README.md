@@ -6,6 +6,13 @@ Complete, from-scratch port of the **Waveshare IMX415-98** camera module
 vendor driver existed for this combination. Everything here was built on an
 x86 host against the exact target BSP and validated on the device.
 
+> **Branch `JP7` = JetPack 7.2 / L4T R39.2.1 (kernel 6.8.12-tegra).**
+> Same driver, byte-identical overlay, built natively on the target with
+> standalone Makefiles (no BSP tree needed) and ground-truth-checked
+> against the installed kernel. Install/boot validation is pending (needs
+> sudo). Everything JP7-specific is in [jp7_port.md](jp7_port.md);
+> the rest of this documentation is the JP6 record and still applies.
+
 ## What works (all target-validated)
 
 - **Kernel driver** `nv_imx415.ko` (tegracam): 3864×2192 @ 30 fps over
@@ -31,6 +38,7 @@ x86 host against the exact target BSP and validated on the device.
 |---|---|
 | Run the camera (either pipeline, switching, browser view, IR-CUT) | [USAGE.md](USAGE.md) |
 | Install everything on a target | [deploy/README.md](deploy/README.md) |
+| JetPack 7.2 port: what changed, how it is built and checked, what is left | [jp7_port.md](jp7_port.md) |
 
 ## Documentation map
 

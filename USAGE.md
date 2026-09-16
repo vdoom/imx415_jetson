@@ -97,5 +97,6 @@ feeds it** — start the producer first, launch the viewer app fresh after.
 ## IR-CUT (shared by both paths)
 
 ```bash
-./tools/ircut.sh day|night|auto    # day = filter in (validated: PP.01 high)
+./tools/ircut.sh day|night|auto    # day = filter in (validated on JP6: PP.01 high;
+                                   # JP7 resolves the line by name, gpiochip0 93)
 ```

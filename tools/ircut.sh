@@ -3,7 +3,9 @@
 #
 # The module's H-bridge direction input arrives over the FFC: module pin 5
 # "IR-CUT" = CAM1 connector pin 18 = pad extperiph2_clk_pp1 = main GPIO PP.01
-# (gpiochip0 line 113). The camera overlay (fragment@1) muxes the pad to
+# (gpiochip0 line 93 on JetPack 7 / kernel 6.8; it was line 113 on JetPack 6
+# / 5.15 - the line is resolved by NAME below, the number is only the
+# fallback). The camera overlay (fragment@1) muxes the pad to
 # RSVD1/GPIO at boot, so:
 #   - line released -> pad hi-Z -> the module's physical switch selects mode
 #   - line driven   -> software overrides the switch
@@ -18,7 +20,7 @@ set -eu
 
 LEVEL_DAY=1
 LINE_NAME="PP.01"
-FALLBACK="gpiochip0 113"   # if gpiofind can't resolve the name
+FALLBACK="gpiochip0 93"    # if gpiofind can't resolve the name (JP7/6.8 numbering)
 
 usage() { echo "usage: sudo $0 day|night|auto|status" >&2; exit 1; }
 [ $# -eq 1 ] || usage

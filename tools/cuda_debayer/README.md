@@ -129,7 +129,8 @@ the missing libcamera/nvargus layer for this sensor.
 One-time setup on the Jetson:
 
 ```bash
-sudo apt install v4l2loopback-dkms   # builds against 5.15.185-tegra
+sudo apt install v4l2loopback-dkms   # DKMS builds against the running kernel
+                                     # (5.15.185-tegra on JP6, 6.8.12-tegra on JP7)
 sudo modprobe v4l2loopback video_nr=10 card_label="IMX415" exclusive_caps=1
 # persist across reboots:
 echo v4l2loopback | sudo tee /etc/modules-load.d/v4l2loopback.conf

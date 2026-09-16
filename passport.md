@@ -1,5 +1,12 @@
 # Паспорт проєкту IMX415 → Jetson Orin Nano — дані з target
 
+> **JetPack 7 (гілка `JP7`, 2026-09-16):** цей паспорт — вимірювання з
+> JP 6.2.2 (Orin Nano Super, `orca@tegra-ubuntu`). Що змінилось на
+> JP 7.2 / L4T R39.2.1 (Orin NX devkit, ядро 6.8.12-tegra) — див.
+> [jp7_port.md](jp7_port.md): сенсор той самий (0x37 на i2c-9, VMAX 2250
+> при XCLR=1 — перевірено 2026-09-16), PAC.00 = gpiochip0 line 138 (без
+> змін), PP.01 = line **93** (було 113), extlinux без `UARTFix`.
+
 **Дата збору:** 2026-07-06 · **Хто збирав:** Claude Code безпосередньо на target (`orca@tegra-ubuntu`)
 **Покриває:** guide §1.4 (знімок стану), §3.2 (I2C smoke test) + додаткова розвідка DT/GPIO.
 **Повторна верифікація 2026-07-07:** усі значення відтворились 1:1 (скани, регістрові

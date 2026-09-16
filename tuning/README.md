@@ -17,6 +17,12 @@ with NVIDIA's default tuning:
 
 ## Schema ground truth (JP6.2.2, R36.5.0)
 
+> JetPack 7 note (branch `JP7`): the accepted/rejected table below was
+> measured against the R36.5.0 nvargus daemon. The R39.2.1 daemon has not
+> been checked yet - after the first `argus_check.sh` run on JP7, grep the
+> journal for `Invalid isp config attribute` (must be 0 for our file) and
+> update this table if the schema moved.
+
 Learned by diffing the daemon journal against the stashed IMX219 file — the
 daemon logs `Error: Invalid isp config attribute` per rejected line and
 silently accepts the rest:
